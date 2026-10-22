@@ -69,6 +69,7 @@ Entradas por nível de origem. Datas de primeira publicação.
 - Simon, H. A. "A behavioral model of rational choice", _Quarterly Journal of Economics_, 69 (1955).
 - Brooks, F. P. "No Silver Bullet", _IEEE Computer_, 20 (1986).
 - Meeus, J. _Astronomical Algorithms_ (1991).
+- Fliegel, H. F.; Van Flandern, T. C. "A machine algorithm for processing calendar dates", _Communications of the ACM_, 11 (1968).
 - Euclides. _Elementos_ (c. 300 a.C.).
 - Lobachevsky, N. "O nachalakh geometrii", _Kazanskii Vestnik_ (1829).
 - Poincaré, H. "Théorie des groupes fuchsiens", _Acta Mathematica_, 1 (1882).
