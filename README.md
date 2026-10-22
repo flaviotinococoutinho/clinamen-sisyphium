@@ -14,8 +14,18 @@ nos crates e no ABI: `sisyphium`.
 
 ## Estado
 
-Checkpoint presente: 0 (fundação documental). O código começa no checkpoint 1. Evidências de
-cada checkpoint estão no PR correspondente e na mensagem da tag `cp/N-assunto`.
+Checkpoint presente: 1 (substrato e natureza: `verbum`, `memoria`, `natura`, `ephemeris`,
+`spatium`, `hospes`, `mundus`). Evidências de cada checkpoint estão no PR correspondente e na
+mensagem da tag `cp/N-assunto`.
+
+## Verificação
+
+```
+scripts/verify.sh
+```
+
+Executa formato, lints, testes, documentação e varredura de termos vetados, na ordem de
+`docs/08-verificacao.md` §3.
 
 ## Mapa dos documentos
 
