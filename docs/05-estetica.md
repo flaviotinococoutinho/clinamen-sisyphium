@@ -36,8 +36,8 @@ _kintsugi_).
 | Encosta | de (W·φ⁻², S) a (W − m, S·φ⁻²) | φ⁻² = `0x61C9` |
 | Região do céu | x ∈ [m, W·φ⁻¹]; y ∈ [m, S·φ⁻²] | φ⁻¹ = `0x9E37` |
 | Região das crônicas | x ∈ [m, W − m]; y ∈ [S, H − m]; 48 glifos por linha a 320 px | — |
-| Altura da figura | S·φ⁻⁴ | φ⁻⁴ = `0x255A` |
-| Diâmetro da rocha | altura da figura / φ (textura 8×8 ampliada) | φ = `0x19E37` |
+| Altura da figura | S·φ⁻³ (24 px a 320×180) | φ⁻³ = `0x3C6F` |
+| Diâmetro da rocha | ⌈altura da figura / φ⌉; textura 8×8 ampliada por max(1, ⌊(diâmetro + 4)/8⌋) | φ⁻¹ = `0x9E37` |
 | Estratos | 4 faixas de paralaxe com velocidades φ⁻¹..φ⁻⁴ | — |
 | Harmonia corrompida | com `onus` > 200, φ⁻¹ ⊕ `0x1337` nas proporções do céu (REQ-L5-12) | — |
 
@@ -51,7 +51,7 @@ _kintsugi_).
 
 ## 6. Figura
 
-- Altura H·φ⁻⁴; rosto de 4×4 px sem traços; a expressão vem da postura, da cadência e da luz.
+- Altura S·φ⁻³; rosto de 4×4 px sem traços; a expressão vem da postura, da cadência e da luz.
 - Silhueta legível em todos os stili em menos de 1 s: a figura e a rocha têm contraste mínimo de 8
   tons com o fundo.
 - Posturas: ereta, curvada, ajoelhada, contemplativa, adormecida, voltada ao observador.
