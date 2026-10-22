@@ -250,8 +250,8 @@ impl<'t, 'p> Pictor<'t, 'p> {
     ) {
         let (mut x, mut y) = (self.clamp(x0), self.clamp(y0));
         let (x1, y1) = (self.clamp(x1), self.clamp(y1));
-        let dx = x1.wrapping_sub(x).abs();
-        let dy = y1.wrapping_sub(y).abs().wrapping_neg();
+        let dx = x1.wrapping_sub(x).saturating_abs();
+        let dy = y1.wrapping_sub(y).saturating_abs().wrapping_neg();
         let sx = if x < x1 { 1 } else { -1 };
         let sy = if y < y1 { 1 } else { -1 };
         let mut err = dx.wrapping_add(dy);
@@ -275,7 +275,7 @@ impl<'t, 'p> Pictor<'t, 'p> {
     /// A filled disc, solid or dithered by the Bayer matrix at luminance `lum`, row by row from
     /// the top and left to right, visiting only the rows and columns that can reach the frame.
     pub fn disc(&mut self, cx: i32, cy: i32, r: i32, lum: u8, stratum: u8, dither: bool) {
-        let r = self.clamp(r.abs());
+        let r = self.clamp(r.saturating_abs());
         let r2 = (r as u32).saturating_mul(r as u32);
         let (cx, cy, radius) = (i64::from(cx), i64::from(cy), i64::from(r));
         let (top, bottom) = self.clip_rows(cy.wrapping_sub(radius), cy.wrapping_add(radius));
@@ -585,6 +585,22 @@ mod tests {
                     }
                 }
                 assert_eq!(bounded, every, "κ {kappa} disc at ({cx}, {cy}) r {r}");
+            }
+        }
+    }
+
+    /// Discs and moons of extreme radius never panic: the absolute value of the radius saturates
+    /// instead of overflowing (REQ-L0-06).
+    #[test]
+    fn primitives_total_at_extremes() {
+        use crate::signum::caelum::moon;
+        for r in [i32::MIN, i32::MIN + 1, -1, 0, i32::MAX] {
+            for kappa in [-128i8, 0, 127] {
+                let mut buf = [VOID; 16 * 16];
+                let mut tab = Tabula::new(16, 16, &mut buf).unwrap();
+                let mut pictor = Pictor::new(&mut tab, kappa);
+                pictor.disc(8, 8, r, 9, 1, true);
+                moon(&mut pictor, 8, 8, r, 64, 12, true);
             }
         }
     }

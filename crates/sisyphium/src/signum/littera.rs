@@ -113,6 +113,25 @@ fn index(c: char) -> Option<usize> {
     ORDO.chars().position(|o| o == c)
 }
 
+/// The accented capitals of REQ-L5-04, in the order of their cell glyph indices 70..=81.
+pub const ACUTAE: &str = "ÁÀÂÃÉÊÍÓÔÕÚÇ";
+
+/// Glyph index of a character in a cell (REQ-H-02): its position in [`ORDO`] (0..=69), else 70
+/// plus its position in [`ACUTAE`] (70..=81), else the index of `·` (57).
+#[must_use]
+pub fn cell_glyph(c: char) -> u8 {
+    let accented = || {
+        ACUTAE
+            .chars()
+            .position(|a| a == c)
+            .map(|i| i.wrapping_add(GLYPHI.len()))
+    };
+    index(c)
+        .or_else(accented)
+        .or_else(|| index('·'))
+        .map_or(0, |i| i as u8)
+}
+
 /// The glyph and the mark of a character: accented capitals decompose into their base letter
 /// and a mark; characters outside the table become `·`.
 #[must_use]
@@ -280,6 +299,28 @@ mod tests {
             assert_eq!(glyph(c), (dot, Marca::Nulla), "{c:?}");
         }
         assert_eq!(ORDO.chars().count(), GLYPHI.len());
+    }
+
+    /// Glyph indices of cells (REQ-H-02): the position in `ORDO` for its seventy characters, 70
+    /// plus the position in `ACUTAE` for the twelve accented capitals, and 57 (`·`) otherwise.
+    #[test]
+    fn cell_glyph_accents() {
+        let word: std::vec::Vec<u8> = "AÇÃO".chars().map(cell_glyph).collect();
+        assert_eq!(word, [0, 81, 73, 14]);
+        assert_eq!(cell_glyph('a'), 57);
+        assert_eq!(cell_glyph('·'), 57);
+        assert_eq!(ORDO.chars().position(|c| c == '·'), Some(57));
+        for (i, c) in ORDO.chars().enumerate() {
+            assert_eq!(usize::from(cell_glyph(c)), i, "{c}");
+        }
+        assert_eq!(ACUTAE, "ÁÀÂÃÉÊÍÓÔÕÚÇ");
+        for (i, c) in ACUTAE.chars().enumerate() {
+            assert_eq!(usize::from(cell_glyph(c)), 70 + i, "{c}");
+            assert_ne!(glyph(c).1, Marca::Nulla, "{c} carries a mark");
+        }
+        for c in ['é', 'ß', '😀', '\n', 'ç'] {
+            assert_eq!(cell_glyph(c), 57, "{c:?}");
+        }
     }
 
     /// No glyph but the space is empty, and every glyph fits seven rows of five bits.

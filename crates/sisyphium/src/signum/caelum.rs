@@ -2,9 +2,24 @@
 //! by its phase and the ray of a rare event (REQ-L5-07, REQ-L5-08, REQ-L6-03).
 
 use crate::natura::mix;
+use crate::signum::margo::harmony;
 use crate::signum::pixel::LABEL_NONE;
-use crate::signum::raster::{Modo, Pictor};
-use crate::spatium::{Rect, isqrt, scatter64};
+use crate::signum::raster::{Modo, Pictor, bayer};
+use crate::spatium::{Compositio, Rect, isqrt, part, scatter64};
+
+/// The region of the sky under the harmony of the burden (REQ-L5-12): the sky of the
+/// composition while `onus` ≤ 200; above, its right edge is ⌊`width`·harmony(`onus`)⌋ in place of
+/// ⌊`width`·φ⁻¹⌋, by the formula of the composition (REQ-L2-11).
+#[must_use]
+pub fn sky_region(comp: &Compositio, width: u16, onus: u8) -> Rect {
+    if onus <= 200 {
+        return comp.sky;
+    }
+    Rect {
+        w: part(width, harmony(onus)).saturating_sub(comp.sky.x),
+        ..comp.sky
+    }
+}
 
 /// The six lines of the hexagram from the six bits of serenity, bit 0 first (the bottom line);
 /// `true` is an unbroken line (REQ-L5-07).
@@ -65,15 +80,21 @@ pub fn constellation(pictor: &mut Pictor, sky: Rect, automatum: u8, lum: u8, str
     }
 }
 
-/// Draws the moon of radius `r` centered at `(cx, cy)`: nothing at new moon, a full disc at
-/// 128, and in between the disc minus a shadow disc displaced by the illuminated fraction, to
-/// the left while waxing and to the right while waning (REQ-L5-08). Only the rows and columns
-/// that can reach the frame are visited.
-pub fn moon(pictor: &mut Pictor, cx: i32, cy: i32, r: i32, luna: u8, lum: u8) {
+/// Tone of the lit part of the moon where the ordered dither does not reach the moon's tone
+/// (REQ-L5-08).
+pub const PUNCTA_LUNAE: u8 = 9;
+
+/// Draws the moon of radius `r` centered at `(cx, cy)` in the sky's class 2: nothing at new moon,
+/// a full disc at 128, and in between the disc minus a shadow disc displaced by the illuminated
+/// fraction, to the left while waxing and to the right while waning in the northern hemisphere,
+/// mirrored in the southern one (`australis`). The lit part is dotted: a pixel takes `lum` where
+/// the Bayer matrix lights it at `lum`, and [`PUNCTA_LUNAE`] elsewhere (REQ-L5-08). Only the rows
+/// and columns that can reach the frame are visited.
+pub fn moon(pictor: &mut Pictor, cx: i32, cy: i32, r: i32, luna: u8, lum: u8, australis: bool) {
     if luna == 0 {
         return;
     }
-    let r = r.abs().min(4096);
+    let r = r.saturating_abs().min(4096);
     let waxing = luna <= 128;
     let fraction = if waxing {
         i32::from(luna)
@@ -81,10 +102,10 @@ pub fn moon(pictor: &mut Pictor, cx: i32, cy: i32, r: i32, luna: u8, lum: u8) {
         i32::from(255u8.wrapping_sub(luna).wrapping_add(1))
     };
     let offset = r.wrapping_mul(2).wrapping_mul(fraction).wrapping_shr(7);
-    let shadow_x = if waxing {
-        offset.wrapping_neg()
-    } else {
+    let shadow_x = if waxing == australis {
         offset
+    } else {
+        offset.wrapping_neg()
     };
     let r2 = (r as u32).saturating_mul(r as u32);
     let (cx, cy, radius) = (i64::from(cx), i64::from(cy), i64::from(r));
@@ -98,7 +119,12 @@ pub fn moon(pictor: &mut Pictor, cx: i32, cy: i32, r: i32, luna: u8, lum: u8) {
             let sx = x.wrapping_sub(cx).wrapping_sub(i64::from(shadow_x));
             let shadow2 = sx.wrapping_mul(sx).wrapping_add(dy.wrapping_mul(dy));
             if shadow2 > i64::from(r2) {
-                pictor.plot(x as i32, y as i32, lum, 2, LABEL_NONE, Modo::Super);
+                let tone = if bayer(x as u32, y as u32, lum) {
+                    lum
+                } else {
+                    PUNCTA_LUNAE
+                };
+                pictor.plot(x as i32, y as i32, tone, 2, LABEL_NONE, Modo::Super);
             }
         }
     }
@@ -145,6 +171,32 @@ mod tests {
         assert_eq!(row(10), 10, "second line broken: a gap of 2 px");
     }
 
+    /// The harmony of the burden shapes the sky (REQ-L5-12): up to 200 the region of the
+    /// composition; above, its right edge is ⌊W·(φ⁻¹ ⊕ 0x1337)⌋ by the composition's formula.
+    #[test]
+    fn harmony_shapes_sky() {
+        use crate::signum::margo::harmony;
+        use crate::spatium::compositio;
+        for (w, h) in [(320u16, 180u16), (1920, 1080), (272, 60)] {
+            let comp = compositio(w, h, 6);
+            assert_eq!(sky_region(&comp, w, 0), comp.sky);
+            assert_eq!(sky_region(&comp, w, 200), comp.sky);
+            let corrupted = sky_region(&comp, w, 201);
+            let right = ((u64::from(w) * harmony(201).0 as u64) >> 16) as u16;
+            assert_eq!(
+                corrupted,
+                Rect {
+                    w: right.saturating_sub(comp.sky.x),
+                    ..comp.sky
+                }
+            );
+            assert_eq!(sky_region(&comp, w, 255), corrupted);
+            if w >= 320 {
+                assert_ne!(corrupted.w, comp.sky.w, "{w}×{h}");
+            }
+        }
+    }
+
     /// The same automaton scatters the same constellation; a different one differs.
     #[test]
     fn constellation_deterministic() {
@@ -177,28 +229,80 @@ mod tests {
         }
     }
 
-    /// New moon draws nothing; full moon fills the disc; half moon lights about half (REQ-L5-08).
+    /// New moon draws nothing; full moon fills the disc; half moon lights about half; the lit
+    /// part is dotted, the cells of the dither in the moon's tone and the others in tone 9
+    /// (REQ-L5-08).
     #[test]
     fn moon_phase_fill() {
         let render = |luna: u8| {
             let mut buf = [VOID; 32 * 32];
             let mut tab = Tabula::new(32, 32, &mut buf).unwrap();
             let mut pictor = Pictor::flat(&mut tab);
-            moon(&mut pictor, 16, 16, 8, luna, 12);
-            (0..32 * 32).filter(|&i| lum_of(buf[i]) == 12).count()
+            moon(&mut pictor, 16, 16, 8, luna, 12, false);
+            let tone = |t: u8| (0..32 * 32).filter(|&i| lum_of(buf[i]) == t).count();
+            (tone(12), tone(PUNCTA_LUNAE))
         };
-        assert_eq!(render(0), 0);
-        let full = render(128);
+        assert_eq!(render(0), (0, 0));
+        let (bright, dim) = render(128);
+        let full = bright + dim;
         assert!((160..=230).contains(&full), "full {full}");
-        let half = render(64);
+        assert!(dim > 0, "the lit part is dotted");
         assert!(
-            half > full / 4 && half < full * 3 / 4,
-            "half {half} of {full}"
+            bright * 16 >= full * 10 && bright * 16 <= full * 14,
+            "twelve in sixteen cells bright: {bright} of {full}"
         );
-        let waning = render(192);
+        let (b, d) = render(64);
         assert!(
-            waning > full / 4 && waning < full * 3 / 4,
-            "waning {waning} of {full}"
+            b + d > full / 4 && b + d < full * 3 / 4,
+            "half {} of {full}",
+            b + d
+        );
+        let (b, d) = render(192);
+        assert!(
+            b + d > full / 4 && b + d < full * 3 / 4,
+            "waning {} of {full}",
+            b + d
+        );
+    }
+
+    /// The moon of the southern hemisphere is the mirror image of the northern one about its
+    /// vertical axis: the waxing moon is lit on the right in the north and on the left in the
+    /// south (REQ-L5-08).
+    #[test]
+    fn moon_hemisphere_mirror() {
+        let lit = |luna: u8, australis: bool| {
+            let mut buf = [VOID; 33 * 33];
+            let mut tab = Tabula::new(33, 33, &mut buf).unwrap();
+            let mut pictor = Pictor::flat(&mut tab);
+            moon(&mut pictor, 16, 16, 10, luna, 12, australis);
+            buf.map(|p| p != VOID)
+        };
+        for luna in [20u8, 64, 100, 160, 200, 240] {
+            let (north, south) = (lit(luna, false), lit(luna, true));
+            for y in 0..33 {
+                for x in 0..33 {
+                    assert_eq!(
+                        north[x + y * 33],
+                        south[32 - x + y * 33],
+                        "luna {luna} at {x},{y}"
+                    );
+                }
+            }
+            assert_ne!(north, south, "luna {luna}");
+        }
+        let side = |m: &[bool; 33 * 33], right: bool| {
+            (0..33 * 33)
+                .filter(|&i| m[i] && if right { i % 33 > 16 } else { i % 33 < 16 })
+                .count()
+        };
+        let (north, south) = (lit(64, false), lit(64, true));
+        assert!(
+            side(&north, true) > side(&north, false),
+            "waxing north lit on the right"
+        );
+        assert!(
+            side(&south, false) > side(&south, true),
+            "waxing south lit on the left"
         );
     }
 }

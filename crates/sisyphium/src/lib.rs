@@ -31,7 +31,8 @@
         clippy::manual_range_contains,
         clippy::naive_bytecount,
         clippy::verbose_bit_mask,
-        clippy::large_stack_arrays
+        clippy::large_stack_arrays,
+        clippy::disallowed_methods
     )
 )]
 

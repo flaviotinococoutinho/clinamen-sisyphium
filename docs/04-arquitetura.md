@@ -130,7 +130,8 @@ Protocolo por sessão:
 
 Pixel `u8`: bits 0..=1 estrato; 2..=3 rótulo de aresta; 4..=7 luminância. Paleta: 16 entradas
 RGB por `palette(&concentus)`. Célula `u16`: bits 0..=7 glifo; 8..=11 tom; 12..=13
-estrato.
+estrato. Índice de glifo: 0..=69, a posição em `ORDO`; 70..=81, as maiúsculas acentuadas
+ÁÀÂÃÉÊÍÓÔÕÚÇ nesta ordem (`ACUTAE`); 57 (`·`) para qualquer outro caractere.
 
 Ordem de composição em `render` (todas as coordenadas passam pela projeção de curvatura):
 
