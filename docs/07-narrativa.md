@@ -15,8 +15,8 @@ lei do mundo que a figura sofre.
 
 | Unidade | Gatilho | Conteúdo | Duração |
 | --- | --- | --- | --- |
-| Clinamen | REQ-L4-02 | micro-incidente; 3 rami; crônica de 4..=6 linhas; nó no céu; aforismo modal | até `gradus` 600 |
-| Persona | REQ-L4-09 | figura secundária; 1..=2 linhas; efeito no estado | `gradus` 240 |
+| Clinamen | REQ-L4-02 | micro-incidente; 3 rami; crônica de 5 linhas; nó no céu; aforismo modal | até `gradus` 600 |
+| Persona | REQ-L4-09 | figura secundária; 1 linha; efeito no estado | `gradus` 240 |
 | Somnium e agnitio | REQ-L4-10, L4-11 | geometria curvada sem aviso; ao despertar, a figura na base; 2 linhas; o `Verbum` em hexadecimal | `gradus` 240 |
 | Interrupção | REQ-L4-08 | a figura voltada ao observador; 1 linha | 1 quadro |
 | Metalepse | REQ-L7-03 | ensō no quadrante previsto; 1 linha após o toque | `gradus` 240 |
