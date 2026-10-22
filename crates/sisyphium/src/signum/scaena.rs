@@ -545,13 +545,15 @@ pub fn render_cellae(
     true
 }
 
-/// Golden hashes of the four scenarios (REQ-L5-09), recorded after visual inspection.
+/// Golden hashes of the six scenarios (REQ-L5-09), recorded after visual inspection.
 #[cfg(test)]
-const GOLDEN: [(&str, u64); 4] = [
+const GOLDEN: [(&str, u64); 6] = [
     ("vigilia", 0x7456_D704_92AF_0BB7),
-    ("acedia", 0x86D5_37D5_6636_1E58),
+    ("acedia", 0x3A8A_F286_4867_3454),
     ("somnium", 0xE4A8_6523_FA7C_0407),
     ("quies", 0xBCDB_E4CF_E9EE_0CCF),
+    ("littera", 0x4988_A946_E3FF_681D),
+    ("somnium-1920x1080", 0xF947_ADD8_C765_ADAF),
 ];
 
 #[cfg(test)]
@@ -1202,21 +1204,25 @@ mod tests {
         }
     }
 
-    /// Writes the four golden scenarios as PPM files for inspection when requested.
+    /// Writes the six golden scenarios as PPM files, each at its own dimensions, for inspection
+    /// when requested.
     #[test]
     #[ignore = "writes files; run on request"]
     fn dump_golden_ppm() {
         use std::io::Write;
         let dir = std::env::var("SISYPHIUM_DUMP").unwrap_or_else(|_| "/tmp".into());
-        for (name, m, i, r) in golden_scenarios() {
-            let mut buf = std::vec![0u8; 320 * 180];
-            let mut tab = Tabula::new(320, 180, &mut buf).unwrap();
-            let f = Facultates::default();
+        for (name, w, h, m, i, r) in golden_scenarios() {
+            let mut buf = std::vec![0u8; usize::from(w) * usize::from(h)];
+            let mut tab = Tabula::new(w, h, &mut buf).unwrap();
+            let f = Facultates {
+                width: w,
+                height: h,
+                ..Facultates::default()
+            };
             render(&m, &f, &i, &r, &LINES, &mut tab);
             let c = crate::concentus::concentus(&m, &f, &i, &r);
             let pal = crate::concentus::palette(&c);
-            let mut out = std::vec::Vec::new();
-            out.extend_from_slice(b"P6\n320 180\n255\n");
+            let mut out = std::format!("P6\n{w} {h}\n255\n").into_bytes();
             for &p in &buf {
                 out.extend_from_slice(&pal[usize::from(lum_of(p))]);
             }
@@ -1233,18 +1239,11 @@ mod tests {
     #[test]
     #[ignore = "measurement; run in release on request"]
     fn metire_frames() {
-        let mut scenarios: Vec<(&str, Mundus, Indicia, Regimen)> =
-            golden_scenarios().into_iter().collect();
-        let (name, m, i, r) = scenarios[0];
-        scenarios.push((
-            name,
-            m,
-            i,
-            Regimen {
-                stilus: Stilus::Littera,
-                ..r
-            },
-        ));
+        let scenarios: Vec<(&str, Mundus, Indicia, Regimen)> = golden_scenarios()
+            .into_iter()
+            .filter(|&(_, w, _, _, _, _)| w == 320)
+            .map(|(name, _, _, m, i, r)| (name, m, i, r))
+            .collect();
         for (name, m, i, r) in &scenarios {
             for (w, h, n) in [(320u16, 180u16, 1000u32), (1920, 1080, 100)] {
                 let f = Facultates {
@@ -1271,8 +1270,17 @@ mod tests {
         }
     }
 
-    /// The four scenarios of `docs/08-verificacao.md` §7.
-    fn golden_scenarios() -> [(&'static str, Mundus, Indicia, Regimen); 4] {
+    /// A golden scenario: its name, the frame's width and height, the world, the measurements
+    /// and the regimen.
+    type Scaena = (&'static str, u16, u16, Mundus, Indicia, Regimen);
+
+    /// The scenarios of `docs/08-verificacao.md` §7 and their two variants: vigilia in the
+    /// Littera stilus (REQ-L5-03, one golden frame per stilus) and somnium at 1920×1080, which
+    /// locks the curvature projection at desktop resolution (REQ-L2-06). The 4 096 ticks of §7
+    /// need `step`, which arrives with checkpoint 3; until then each world fixes directly the
+    /// fields those ticks would set (`ascensus`, `onus`, `tranquillitas`, `gradus`,
+    /// `clausurae`, `modus`, `curvatura`).
+    fn golden_scenarios() -> [Scaena; 6] {
         let mut vigil = Mundus::genesis(1);
         vigil.verbum = vigil.verbum.with_ascensus(90);
         vigil.memoria = vigil
@@ -1295,22 +1303,26 @@ mod tests {
             .with_curvatura(-48);
         let mut quies = Mundus::genesis(4);
         quies.verbum = quies.verbum.with_modus(Modus::Quies);
+        let day = Indicia {
+            epoch_ms: NOON,
+            energy: 255,
+            ..Indicia::default()
+        };
+        let night = Indicia {
+            epoch_ms: 1_797_831_000_000,
+            energy: 200,
+            idle_s: 3600,
+            ..Indicia::default()
+        };
         [
-            (
-                "vigilia",
-                vigil,
-                Indicia {
-                    epoch_ms: NOON,
-                    energy: 255,
-                    ..Indicia::default()
-                },
-                Regimen::default(),
-            ),
+            ("vigilia", 320, 180, vigil, day, Regimen::default()),
             (
                 "acedia",
+                320,
+                180,
                 acedia,
                 Indicia {
-                    epoch_ms: 1_790_108_200_000,
+                    epoch_ms: 1_790_112_600_000,
                     energy: 120,
                     ..Indicia::default()
                 },
@@ -1322,22 +1334,14 @@ mod tests {
                     ..Regimen::default()
                 },
             ),
-            (
-                "somnium",
-                dream,
-                Indicia {
-                    epoch_ms: 1_797_831_000_000,
-                    energy: 200,
-                    idle_s: 3600,
-                    ..Indicia::default()
-                },
-                Regimen::default(),
-            ),
+            ("somnium", 320, 180, dream, night, Regimen::default()),
             (
                 "quies",
+                320,
+                180,
                 quies,
                 Indicia {
-                    epoch_ms: 1_774_008_000_000 - 3 * 3_600_000,
+                    epoch_ms: 1_774_008_000_000,
                     energy: 20,
                     ..Indicia::default()
                 },
@@ -1349,18 +1353,43 @@ mod tests {
                     ..Regimen::default()
                 },
             ),
+            (
+                "littera",
+                320,
+                180,
+                vigil,
+                day,
+                Regimen {
+                    stilus: Stilus::Littera,
+                    ..Regimen::default()
+                },
+            ),
+            (
+                "somnium-1920x1080",
+                1920,
+                1080,
+                dream,
+                night,
+                Regimen::default(),
+            ),
         ]
     }
 
     /// The golden hashes (REQ-L5-09); updated only with an intentional change of form.
     #[test]
     fn golden_frames() {
-        let expected: [(&str, u64); 4] = GOLDEN;
-        for ((name, m, i, r), (ename, hash)) in golden_scenarios().into_iter().zip(expected) {
-            assert_eq!(name, ename);
-            let mut buf = std::vec![0u8; 320 * 180];
-            let mut tab = Tabula::new(320, 180, &mut buf).unwrap();
-            render(&m, &Facultates::default(), &i, &r, &LINES, &mut tab);
+        for ((name, w, h, m, i, r), (expected_name, hash)) in
+            golden_scenarios().into_iter().zip(GOLDEN)
+        {
+            assert_eq!(name, expected_name);
+            let mut buf = std::vec![0u8; usize::from(w) * usize::from(h)];
+            let mut tab = Tabula::new(w, h, &mut buf).unwrap();
+            let f = Facultates {
+                width: w,
+                height: h,
+                ..Facultates::default()
+            };
+            render(&m, &f, &i, &r, &LINES, &mut tab);
             assert_eq!(fnv1a(&buf), hash, "{name}: {:#018x}", fnv1a(&buf));
         }
     }
