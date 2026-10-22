@@ -334,7 +334,7 @@ mod tests {
     )]
     use super::*;
     use crate::hospes::Tabula;
-    use crate::natura::mix;
+    use crate::natura::galois;
     use crate::signum::pixel::{VOID, lum_of, pixel, stratum_of};
     use std::vec::Vec;
 
@@ -447,37 +447,36 @@ mod tests {
         assert_eq!(lit2, 12);
     }
 
-    /// Drawing never writes outside the slice, for dispersed frame sizes and wild coordinates.
+    /// The primitives write only the prefix of width·height pixels: lines, discs, rectangles and
+    /// points with wild coordinates under every curvature, over frame sizes from the Galois
+    /// generator, leave the bytes after the frame intact (REQ-H-02).
     #[test]
-    fn render_never_exceeds_slice() {
-        let mut buf = [0u8; 4096 + 7];
-        for k in 0..512u64 {
-            let h = mix(k);
-            let w = 1 + (h & 63) as u16;
-            let hh = 1 + ((h >> 8) & 63) as u16;
+    fn pictor_writes_only_the_prefix() {
+        let mut buf = [0u8; 4096 + 64];
+        let mut semen = 1u16;
+        let mut next = || {
+            semen = galois(semen);
+            semen
+        };
+        for _ in 0..512 {
+            let w = 1 + (next() & 63);
+            let hh = 1 + (next() & 63);
+            let kappa = next() as i8;
             let area = usize::from(w) * usize::from(hh);
-            buf.fill(VOID);
-            buf[area..].fill(0xA5);
-            let mut tab = Tabula::new(w, hh, &mut buf[..area]).unwrap();
-            let kappa = (h >> 16) as i8;
+            buf.fill(0xA5);
+            let mut tab = Tabula::new(w, hh, &mut buf).unwrap();
             let mut pictor = Pictor::new(&mut tab, kappa);
-            let c = |s: u32| ((h >> s) & 0xFF) as i32 - 128;
-            pictor.line(
-                c(24),
-                c(32),
-                c(40),
-                c(48),
-                12,
-                0,
-                1 + (h & 1) as u8,
-                Modo::Super,
-            );
-            pictor.disc(c(24), c(32), (h >> 56) as i32 & 31, 9, 1, true);
-            pictor.fill(c(40), c(48), 40, 40, 5, 2, false);
+            let mut c = || i32::from(next() & 0xFF) - 128;
+            let (x0, y0, x1, y1) = (c(), c(), c(), c());
+            let thick = 1 + (next() & 1) as u8;
+            pictor.line(x0, y0, x1, y1, 12, 0, thick, Modo::Super);
+            pictor.disc(x0, y0, i32::from(next() & 31), 9, 1, true);
+            pictor.fill(x1, y1, 40, 40, 5, 2, false);
             pictor.plot(i32::MAX, i32::MIN, 1, 0, 0, Modo::Dominans);
+            pictor.plot(w.into(), hh.into(), 15, 0, 3, Modo::Super);
             assert!(
                 buf[area..].iter().all(|&b| b == 0xA5),
-                "overflow at frame {w}×{hh}"
+                "{w}×{hh} κ {kappa}: past the frame"
             );
         }
     }
