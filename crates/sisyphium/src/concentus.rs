@@ -40,7 +40,8 @@ pub enum Registrum {
 pub struct Concentus {
     /// Palette family.
     pub tonus: Tonus,
-    /// Tint strength 0..=64 (64 = full tint); serenity reduces it.
+    /// Tint strength 0..=64: each tone mixes `chroma`/256 of the tint target into its color, at most
+    /// 64/256 (a quarter) with no serenity; serenity reduces it.
     pub chroma: u8,
     /// Minimum tone difference between figure and ground, 8..=15; rises as energy falls.
     pub contrastus: u8,
@@ -143,9 +144,11 @@ const ARDESIA: [u8; 3] = [18, 20, 24];
 const CRETA: [u8; 3] = [240, 240, 245];
 /// Gold, the brightest tone in affirmation.
 const AURUM: [u8; 3] = [255, 214, 102];
-/// Sepia tint target.
+/// Sepia tint target: HSL(37.5°, 8/19, 32/51), a warm, half-saturated light brown; each
+/// channel rounded to a byte gives (200, 170, 120).
 const SEPIA: [u8; 3] = [200, 170, 120];
-/// Cold tint target.
+/// Cold tint target: HSL(1 560/7 ≈ 222.86°, 7/10, 41/51), a light blue; each channel rounded
+/// to a byte gives (170, 190, 240).
 const FRIGUS: [u8; 3] = [170, 190, 240];
 
 /// Linear mix of one channel: `a + (b − a)·k/256`.
@@ -307,6 +310,29 @@ mod tests {
             ))[15],
             [255, 231, 110]
         );
+    }
+
+    /// The tint targets are the colors of their HSL derivation: sepia at hue 37.5°, saturation
+    /// 8/19 and lightness 32/51; cold at hue 1 560/7 ≈ 222.86°, saturation 7/10 and lightness
+    /// 41/51; each channel rounded to a byte (REQ-L5-02).
+    #[test]
+    fn tint_targets_from_hsl() {
+        let rgb = |hue: f64, saturation: f64, lightness: f64| {
+            let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
+            let second = chroma * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
+            let base = lightness - chroma / 2.0;
+            let channels = match (hue / 60.0) as u32 {
+                0 => [chroma, second, 0.0],
+                1 => [second, chroma, 0.0],
+                2 => [0.0, chroma, second],
+                3 => [0.0, second, chroma],
+                4 => [second, 0.0, chroma],
+                _ => [chroma, 0.0, second],
+            };
+            channels.map(|v| ((v + base) * 255.0).round() as u8)
+        };
+        assert_eq!(rgb(37.5, 8.0 / 19.0, 32.0 / 51.0), SEPIA);
+        assert_eq!(rgb(1560.0 / 7.0, 0.7, 41.0 / 51.0), FRIGUS);
     }
 
     /// Contrast rises as energy falls (REQ-L5-02; `05-estetica.md` §10).

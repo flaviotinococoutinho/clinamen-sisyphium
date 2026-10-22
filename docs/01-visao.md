@@ -99,8 +99,8 @@ Telemetria para fora do aparelho. Línguas da experiência além de inglês e po
 | --- | --- | --- |
 | 0 | Fundação documental | `cp/0-fundatio` |
 | 1 | Substrato e natureza: `verbum`, `memoria`, `natura`, `ephemeris`, `spatium`, `hospes`; `mundus` com genesis, format, parse; integração contínua | `cp/1-substratum` |
-| 2 | Signo e corpo: `signum` (pixel, paleta, fonte, primitivas, stili), `corpus` (figuras, rocha), composição; quadros-ouro iniciais | `cp/2-signum` |
-| 3 | Escolha, percepção e narração: `arbitrium` com corpus em duas línguas, `sensus`, `transumptio`, `concentus`, `consilium`; `mundus::step`, `render`, `advance` | `cp/3-arbitrium` |
+| 2 | Signo e corpo: `concentus` (acorde e paleta), `signum` (pixel, fonte, primitivas, stili), `corpus` (figuras, rocha), composição; quadros-ouro iniciais | `cp/2-signum` |
+| 3 | Escolha, percepção e narração: `arbitrium` com corpus em duas línguas, `sensus`, `transumptio`, `consilium`; `mundus::step`, `render`, `advance` | `cp/3-arbitrium` |
 | 4 | Hospedeiros: `sisyphium-tabula`, `sisyphium-textus`, `sisyphium-limen`, scripts de papel de parede; medições que fixam as tabelas de custo de `consilium` | `cp/4-hospites` |
 | 5 | `sisyphium-tela` (wasm), comparação de hashes entre sistemas no CI, versão 0.1.0 | `cp/5-tela` |
 

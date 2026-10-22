@@ -43,7 +43,7 @@ Executa formato, lints, testes, documentação e varredura de termos vetados, na
 | `docs/convencoes.md` | Línguas, estilo, densidade canônica, commits, PRs, versionamento |
 | `docs/referencias.md` | Bibliografia canônica |
 | `docs/adr/` | Decisões de arquitetura |
-| `docs/planos/` | Planos de implementação por checkpoint |
+| `docs/planos/` | Planos de implementação do checkpoint em curso (ausente entre checkpoints) |
 
 ## Direitos
 

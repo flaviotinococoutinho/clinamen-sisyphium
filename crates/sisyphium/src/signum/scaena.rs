@@ -904,6 +904,17 @@ mod tests {
         }
     }
 
+    /// The ramp of the Littera stilus points at ` .:-=+*#%@` in `ORDO`, darkest first
+    /// (REQ-L5-03).
+    #[test]
+    fn ramp_matches_ordo() {
+        let ramp: Vec<char> = RAMP
+            .iter()
+            .map(|&i| ORDO.chars().nth(usize::from(i)).unwrap())
+            .collect();
+        assert_eq!(ramp, " .:-=+*#%@".chars().collect::<Vec<char>>());
+    }
+
     /// Two-tone frames use only luminance 0 and 15 (REQ-L5-03).
     #[test]
     fn bicolor_only_two_tones() {

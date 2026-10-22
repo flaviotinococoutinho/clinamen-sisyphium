@@ -23,7 +23,29 @@ _kintsugi_).
 | Creta | Linhas de 1 px (× escala) em 16 tons; preenchimento por pontilhado; curvas de chicote na moldura | Vigilia com energia alta; qualquer resolução | O mundo desenhado à mão, apagável |
 | Musivum | Raster em baixa resolução ampliado por vizinho mais próximo; figuras de blocos | Energia média; hospedeiros de pouca computação; Somnium em transição | O mundo discreto, contado em tesselas |
 | Littera | Grade de células; a cena vira texto pela rampa ` .:-=+*#%@`; as crônicas permanecem legíveis | Hospedeiros só de texto; redução eidética (energia 39..=76 com `tranquillitas` ≥ 48) | O mundo reduzido aos seus signos |
-| Bicolor | Um bit por pixel pela matriz de Bayer 4×4 | Quies; painéis de 1 bit; `color_bits` = 1 | O mundo em repouso: presença e ausência |
+| Bicolor | Um bit por pixel pela matriz de Bayer 4×4; tom ≤ 1 → 0 e tom ≥ 13 → 15, pontilhado entre eles | Quies; painéis de 1 bit; `color_bits` = 1 | O mundo em repouso: presença e ausência |
+
+Tom e classe de estrato de cada elemento no quadro de giz, base dos demais stili (REQ-L5-03). As
+linhas de Bresenham e os glifos ficam em 7..=15 (figura 15, crônicas 13, `Verbum` 10, moldura 9,
+hexagrama 8, ruínas 7), com a exceção da sombra, em 2; pontos, preenchimentos e a rocha seguem a
+tabela.
+
+| Elemento | Tom | Classe | Traçado |
+| --- | --- | --- | --- |
+| Ardósia | 1 | 3 | fundo |
+| Estrelas da constelação | 6 | 2 | pontos |
+| Hexagrama | 8 | 2 | linhas de s px |
+| Lua | 12, pontilhada em 9 | 2 | disco menos o disco de sombra |
+| Encosta | 3..=6, do estrato mais distante ao mais próximo | 1 no mais distante com 2 ou mais estratos; 2 nos demais | pontilhado (camada de pontilhado) ou colunas sólidas |
+| Crista da encosta | 6..=9 (tom do estrato + 3) | a do estrato | um pixel por coluna |
+| Ruínas | 7 | 2 | linhas de s px |
+| Moldura | 9 | 0 | linhas de `linea`·s px |
+| Sombra da figura | 2 | 1 | linha de s px |
+| Figura | 15 | 1 | linhas de `linea`·s px e bloco da cabeça |
+| Rocha | 12 (bit 1) e 4 (bit 0); contorno 15 | 1 | disco com a textura; contorno depois do interior |
+| Crônicas | 13 | 0 | glifos |
+| `Verbum` após agnitio | 10 | 0 | glifos |
+| Células de Littera no raster | fundo 1; glifo da rampa 12 | fundo 3; glifo 1 | célula de 6×10·s |
 
 ## 4. Composição
 
@@ -45,8 +67,10 @@ _kintsugi_).
 ## 5. Linha
 
 - Espessura: s quando `tranquillitas` ≥ 32; 2·s abaixo (linha grossa e angulosa sob agitação).
-- Curva de chicote: soma de 3 harmônicos; amplitudes murcham com `onus` e com energia baixa; a
-  moldura cresce dos cantos inferiores; assimetria entre esquerda e direita por `semen`.
+- Curva de chicote: soma de 3 harmônicos no eixo horizontal com fases por `semen` (REQ-L5-05);
+  amplitudes murcham com `onus` e com energia baixa; a moldura sobe dos cantos inferiores à margem
+  superior; o lado direito desloca o harmônico k em k quartos de volta, o que faz a assimetria
+  entre os lados.
 - Rótulo de aresta (convexa, côncava, oclusiva) muda ao longo de uma mesma reta nas figuras
   impossíveis; nas demais linhas, permanece constante.
 

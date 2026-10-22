@@ -15,13 +15,16 @@ pub const fn harmony(onus: u8) -> Fx {
     }
 }
 
-/// Amplitudes of the three harmonics in Q16.16: 0.55, 0.30, 0.15.
+/// Amplitudes of the three harmonics in Q16.16: ⌊0.55·2¹⁶⌋ = 36 044, ⌊0.30·2¹⁶⌋ = 19 660 and
+/// ⌊0.15·2¹⁶⌋ = 9 830; decreasing with the harmonic and summing to 65 534 ≤ 2¹⁶, so that the swing
+/// stays in −1..=1 (REQ-L5-05).
 const AMPLITUDES: [Fx; 3] = [Fx(36_044), Fx(19_660), Fx(9_830)];
 
 /// A point of the whiplash curve at parameter `t` (0 at the bottom corner, 255 at the top):
-/// `(swing, height)` with the swing in −1..=1 as the sum of three harmonics phased by the seed,
-/// wilted by the burden (×(1024 − onus)/1024) and by scarce energy (×3/4 below 77), and the
-/// height in 0..=1 (REQ-L5-05). The right side carries a quarter-turn phase per harmonic.
+/// `(swing, height)` (REQ-L5-05). The swing, in −1..=1, is the sum of three sines (Bhaskara's)
+/// with amplitudes 0.55, 0.30 and 0.15: harmonic k at k·`t`/256 of a turn plus the phase `semen`
+/// rotated left by 5k bits, read in 1/65 536 of a turn, plus k quarter turns on the right side;
+/// it wilts by (1024 − `onus`)/1024 and by 3/4 below 77 of energy. The height is `t`/255.
 #[must_use]
 pub fn whiplash(t: u8, onus: u8, energy: u8, semen: u16, right: bool) -> (Fx, Fx) {
     let angle = u32::from(t).wrapping_mul(256);
@@ -84,7 +87,7 @@ pub fn draw_frame(
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::arithmetic_side_effects)]
+    #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
     use super::*;
     use crate::spatium::{Fx, PHI_INV};
 
@@ -109,6 +112,55 @@ mod tests {
         assert_ne!(left_x, right_x, "the two sides are asymmetric");
         assert_eq!(whiplash(0, 0, 255, 1, false).1, Fx::ZERO);
         assert_eq!(whiplash(255, 0, 255, 1, false).1, Fx::ONE);
+    }
+
+    /// The swing is the sum of three sines in the horizontal axis, harmonic k at k·t/256 of a
+    /// turn plus the phase `semen` rotated left by 5k bits and, on the right side, k quarter
+    /// turns; it wilts by (1024 − onus)/1024 and by 3/4 below 77 of energy; the height rises
+    /// linearly as t/255 (REQ-L5-05). A reference sum with the exact sine agrees within the
+    /// error of Bhaskara's sine.
+    #[test]
+    fn whiplash_harmonics() {
+        let amplitudes = [0.55, 0.30, 0.15];
+        for semen in [0xACE1u16, 0x1234] {
+            for right in [false, true] {
+                for (onus, energy) in [(0u8, 255u8), (255, 255), (90, 50)] {
+                    for t in [0u8, 64, 128, 191, 255] {
+                        let mut swing = 0.0;
+                        for (k, a) in (1u32..).zip(amplitudes) {
+                            let phase = f64::from(semen.rotate_left(5 * k));
+                            let side = if right { f64::from(k) * 16_384.0 } else { 0.0 };
+                            let turn = f64::from(k) * f64::from(t) * 256.0 + phase + side;
+                            swing += a * (turn / 65_536.0 * core::f64::consts::TAU).sin();
+                        }
+                        swing *= (1024.0 - f64::from(onus)) / 1024.0;
+                        if energy < 77 {
+                            swing *= 0.75;
+                        }
+                        let (x, y) = whiplash(t, onus, energy, semen, right);
+                        let got = f64::from(x.0) / 65_536.0;
+                        assert!(
+                            (got - swing).abs() <= 0.003,
+                            "semen {semen:#x} right {right} onus {onus} t {t}: {got} vs {swing}"
+                        );
+                        assert_eq!(y, Fx::from_ratio(i32::from(t), 255));
+                    }
+                }
+            }
+        }
+    }
+
+    /// The amplitudes are ⌊0.55·2¹⁶⌋, ⌊0.30·2¹⁶⌋ and ⌊0.15·2¹⁶⌋: decreasing, summing to at most
+    /// one so that the swing never leaves −1..=1 (REQ-L5-05).
+    #[test]
+    fn whiplash_amplitudes() {
+        assert_eq!(AMPLITUDES, [Fx(36_044), Fx(19_660), Fx(9_830)]);
+        for (a, share) in AMPLITUDES.iter().zip([0.55, 0.30, 0.15]) {
+            assert_eq!(f64::from(a.0), (share * 65_536.0f64).floor());
+        }
+        assert!(AMPLITUDES[0] > AMPLITUDES[1] && AMPLITUDES[1] > AMPLITUDES[2]);
+        let sum: i32 = AMPLITUDES.iter().map(|a| a.0).sum();
+        assert!(sum <= Fx::ONE.0 && sum >= Fx::ONE.0 - 3, "sum {sum}");
     }
 
     /// φ⁻¹ ⊕ 0x1337 above a burden of 200 (REQ-L5-12).
