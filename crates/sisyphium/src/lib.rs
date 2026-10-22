@@ -48,6 +48,7 @@ pub mod hospes;
 pub mod memoria;
 pub mod mundus;
 pub mod natura;
+pub mod sensus;
 pub mod signum;
 pub mod spatium;
 pub mod verbum;
