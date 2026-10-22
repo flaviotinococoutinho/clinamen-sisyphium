@@ -35,7 +35,7 @@ clinamen-sisyphium/
 | `sensus` | L6 | mutação em oclusão; anomalia liminar; porta de evento raro; inibição de retorno | `verbum`, `natura` |
 | `transumptio` | L7 | oráculo; armadilha; metalepse; amostragem em abismo | `verbum`, `memoria`, `arbitrium`, `spatium`, `hospes` |
 | `hospes` | limiar | `Facultates`, `Indicia`, `Tabula`, `Cellae`, `Lingua`, `Nuntius` | — |
-| `mundus` | — | `Mundus`: genesis, step, render, render_cellae, format, parse | todos |
+| `mundus` | — | `Mundus`: genesis, step, advance, render, render_cellae, format, parse | todos |
 
 Regra de dependência: `concentus` e `signum` não alteram estado; `arbitrium`, `sensus` e
 `transumptio` alteram estado e não desenham; `mundus` ordena.
@@ -50,7 +50,7 @@ Regra de dependência: `concentus` e `signum` não alteram estado; `arbitrium`, 
 | 16..=23 | `conatus` | u8 | 0..=255 | REQ-L4-06 |
 | 24..=31 | `onus` | u8 | 0..=255 | REQ-L4-02, L4-06, L4-07, L4-09 |
 | 32..=39 | `ascensus` | u8 | 0..=255 | REQ-L4-05, L4-07 |
-| 40..=47 | `curvatura` | i8 | −64..=64 em operação; qualquer valor é válido | REQ-L4-11 |
+| 40..=47 | `curvatura` | i8 | −64..=64 depois de todo tick; qualquer valor lido é válido | REQ-L4-11 |
 | 48..=55 | `automatum` | u8 | anel de 8 células | REQ-L1-02, L6-01 |
 | 56..=61 | `tranquillitas` | u6 | 0..=63 | REQ-L4-06; hexagrama |
 | 62..=63 | `modus` | u2 | 0 Vigilia, 1 Quies, 2 Somnium, 3 AmorFati | REQ-L4-10 |
@@ -117,11 +117,13 @@ Protocolo por sessão:
    como capacidades, nunca como nomes.
 2. Lê o estado persistido (32 dígitos) ou chama `genesis(seed)` com semente derivada do relógio.
 3. Chama `consilium(&facultates, &mundus, energy)` e guarda o `Regimen`.
-4. Hospedeiro vivo: a cada `tick_ms` constrói `Indicia` e chama `step`; a cada `interval_ms`
-   chama `render` (ou `render_cellae`), mapeia a luminância pela paleta e exibe. Hospedeiro
-   estático: a cada execução chama `advance` com os ticks decorridos (REQ-H-06) e depois
+4. Hospedeiro vivo: a cada `tick_ms` constrói `Indicia` e chama `step(&facultates, &indicia)`;
+   a cada `interval_ms` chama `render` (ou `render_cellae`), mapeia a luminância pela paleta e
+   exibe. Hospedeiro estático: a cada execução chama
+   `advance(&facultates, &indicia, ticks, tick_ms)` com os ticks decorridos (REQ-H-06) e depois
    `render`. Reavalia `consilium` quando a faixa de energia, as facultates ou o `modus` mudam.
-5. Em oclusão, chama `step` uma única vez com `occluded = true` e suspende a cadência.
+5. Em oclusão, chama `step(&facultates, &indicia)` uma única vez com `occluded = true` e
+   suspende a cadência.
 6. Antes de ocultar a obra por retorno do observador, chama `step` e `render` com
    `leaving = true` uma vez e exibe esse quadro durante o esmaecimento.
 7. Persiste o estado em marcos (`Nuntius` com CLAUSURA, CLINAMEN ou AGNITIO) e ao encerrar.
@@ -154,9 +156,9 @@ int32_t  sisyphium_parse(const uint8_t text[32], uint64_t *verbum, uint64_t *mem
 void     sisyphium_format(uint64_t verbum, uint64_t memoria, uint8_t out[32]);
 void     sisyphium_consilium(const SyFacultates *f, uint64_t verbum, uint64_t memoria, uint8_t energy,
                               SyRegimen *out);
-uint32_t sisyphium_step(uint64_t *verbum, uint64_t *memoria, const SyIndicia *i, const SyRegimen *r); /* Nuntius */
-uint32_t sisyphium_advance(uint64_t *verbum, uint64_t *memoria, const SyIndicia *i, uint32_t ticks,
-                            uint32_t tick_ms, const SyRegimen *r);                                   /* Nuntius */
+uint32_t sisyphium_step(uint64_t *verbum, uint64_t *memoria, const SyFacultates *f, const SyIndicia *i); /* Nuntius */
+uint32_t sisyphium_advance(uint64_t *verbum, uint64_t *memoria, const SyFacultates *f, const SyIndicia *i,
+                            uint32_t ticks, uint32_t tick_ms);                                           /* Nuntius */
 void     sisyphium_render(uint64_t verbum, uint64_t memoria, const SyFacultates *f, const SyRegimen *r,
                             const SyIndicia *i, uint8_t *pixels, uint16_t width, uint16_t height);
 void     sisyphium_palette(uint64_t verbum, uint64_t memoria, const SyFacultates *f, const SyRegimen *r,
@@ -175,6 +177,51 @@ buffer de pixels estático dimensionado pelo hospedeiro.
 - Todo acesso a fatia usa `get`/`get_mut` ou iteradores; lints proíbem indexação direta.
 - Os testes de propriedade enumeram sementes pelo próprio gerador de Galois (65 535 casos) e
   combinam com 8 vetores de `Indicia` fixos.
+
+### 7.1 Ordem do tick
+
+`step(&facultates, &indicia)` aplica as leis na ordem abaixo, com
+`eph` = `ephemeris(epoch_ms, tz_offset_min, australis)`. `mundus` não contém lei própria: cada
+etapa chama a lei de um módulo, e a ordem é tudo o que `mundus` acrescenta.
+
+| # | Etapa | Condição | Anúncio | Requisito |
+| --- | --- | --- | --- | --- |
+| 1 | gerador: `semen` ← `galois(semen)` | sempre | — | REQ-L1-01 |
+| 2 | fecho do ciclo | `ascensus` = 255 | CLAUSURA | REQ-L4-07 |
+| 3 | interrupção | `leaving` | — | REQ-L4-08 |
+| 4 | oclusão | `occluded` | — | REQ-L6-01 |
+| 5 | lasca | `seism` ≥ 240 ∧ (`semen` ∧ 0x3F) = 0 | LAPSUS | REQ-L3-04 |
+| 6 | toque | `touch` presente | METALEPSIS | REQ-L7-01, REQ-L7-03 |
+| 7 | modus | sempre | AGNITIO | REQ-L4-10, REQ-L4-11 |
+| 8 | passo: `ascensus` + 1 | fora da contemplação, com a porta do passo aberta | — | REQ-L4-05 |
+| 9 | leis contínuas | sempre | — | REQ-L4-06 |
+| 10 | evento: idade, fim, clinamen, persona | sempre | CLINAMEN ou PERSONA | REQ-L4-02, REQ-L4-03, REQ-L4-09 |
+| 11 | dinâmica da curvatura | sempre | — | REQ-L4-11 |
+| 12 | porta rara | janela ativa | RARUM | REQ-L6-03 |
+
+O anúncio de um tick é a união dos anúncios das suas etapas; o de `advance` é a união dos
+anúncios dos seus ticks. As razões da ordem:
+
+- O gerador abre o tick: todas as portas das etapas seguintes leem o `semen` já avançado.
+- O fecho precede o passo: o cume alcançado por um passo fica à vista até o fim do tick e fecha no
+  início do tick seguinte.
+- A interrupção segue o fecho e marca o ciclo que o fecho abre.
+- A oclusão e a lasca precedem o passo, que lê o vento no `automatum` já mutado (REQ-L1-08).
+- O toque precede o modus: a lei do toque lê o modus antes da lei do modus, e por isso em Somnium
+  não há metalepse (REQ-L7-03); a lei do modus recebe o toque como estímulo e acorda o sonho
+  (REQ-L4-10). A lei do modus tem a última palavra: com `energy` < 39 ela põe Quies mesmo no tick
+  de uma metalepse, que mantém o evento e o anúncio.
+- O modus precede o passo: a contemplação (Quies; sono após a agnitio) retém o passo no mesmo
+  tick.
+- O passo precede as leis contínuas: o `conatus` se gasta no tick do passo (REQ-L4-06).
+- A curvatura segue o evento: a visita de Heráclito soma +8 à `curvatura` dentro do evento, e a
+  dinâmica da curvatura limita o resultado a −64..=64 (REQ-L4-11). Um mundo em +57..=+64 não
+  sai do tick acima de +64.
+- A porta rara fecha o tick: lê a `clausurae` e o `eventus` que o tick deixa.
+
+`step` lê `Facultates` somente para a efeméride (`tz_offset_min`, `australis`) e não lê
+`Regimen`. De `Indicia`, não lê `automatism`, `returned_ms`, `offset` nem `tilt`. O toque de
+`Indicia` conta mesmo com `Facultates.touch` falso: o toque é medida.
 
 ## 8. Hospedeiros
 

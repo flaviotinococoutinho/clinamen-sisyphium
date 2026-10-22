@@ -441,8 +441,9 @@ pub const fn release(v: Verbum, m: Memoria) -> Memoria {
 
 /// The persona that enters in this tick, if any (REQ-L4-09; Diogenes Laertius, VI; Heraclitus,
 /// DK B12 and B91). Nothing enters under the observer's eye, so Diogenes and Heraclitus need
-/// `idle_s` ≥ 60 or occlusion. All three need a clinamen awaiting its place (`ramus` 3) and the
-/// gate (`semen` ∧ 0x1FF) = 0, a chance of 1 in 512:
+/// `idle_s` ≥ 60 or occlusion. All three need a clinamen awaiting its place (`eventus` 0..=7
+/// with `ramus` 3), so that no special event, the recognition included, yields to a persona, and
+/// the gate (`semen` ∧ 0x1FF) = 0, a chance of 1 in 512:
 ///
 /// - Diogenes ([`DIOGENES`]) at circadian `phase` 112..=144 with `ascensus` 96..=160;
 /// - Heraclitus ([`HERACLITUS`]) at `phase` 184..=200 with `ascensus` 64..=128;
@@ -452,7 +453,7 @@ pub const fn release(v: Verbum, m: Memoria) -> Memoria {
 /// The three hours do not overlap, so at most one persona qualifies.
 #[must_use]
 pub const fn persona(v: Verbum, m: Memoria, phase: u8, idle_s: u32, occluded: bool) -> Option<u8> {
-    let open = gate(v.semen(), 0x1FF) && m.ramus() == RAMUS_EXSPECTANS;
+    let open = gate(v.semen(), 0x1FF) && m.ramus() == RAMUS_EXSPECTANS && m.eventus() < CLINAMINA;
     let unwatched = idle_s >= 60 || occluded;
     match (phase, v.ascensus()) {
         (112..=144, 96..=160) if open && unwatched => Some(DIOGENES),
@@ -617,25 +618,33 @@ pub const fn modus_law(
     }
 }
 
-/// The curvature of space in one tick (REQ-L4-11): in `Modus::Somnium` it falls by 3 down to
-/// −64, in `Modus::AmorFati` it rises by 2 up to +64, and in `Modus::Vigilia` and `Modus::Quies`
-/// it shrinks to three quarters, truncated toward 0. The sums saturate in `i8`; a value beyond
-/// ±64 enters the operational range at the bound the mode moves toward.
+/// Largest magnitude of the curvature that a tick leaves in the word: 64, so that
+/// |κ|·r² = 64/128 · 2 = 1, the bound of the monotone contraction of the projection for the
+/// largest r² of the frame, 2 (REQ-L4-11, REQ-L2-06).
+const CURVATURE_BOUND: i8 = 64;
+
+/// The dynamics of the curvature in one tick (REQ-L4-11). The mode moves the value: in
+/// `Modus::Somnium` it falls by 3, in `Modus::AmorFati` it rises by 2, and in `Modus::Vigilia`
+/// and `Modus::Quies` it shrinks to three quarters, truncated toward 0. The sums saturate in
+/// `i8`, and in every mode the result is limited to −64..=64 (`CURVATURE_BOUND`): a value
+/// beyond the bound, as a persisted word or the visit of Heraclitus ([`visit`]) can leave, comes
+/// back to the bound on its own side in one tick, whichever way the mode moves it. After this law
+/// the word holds an operational curvature for any curvature before it; the caller applies it
+/// after the event of the tick.
 #[must_use]
 pub const fn curvature(v: Verbum) -> Verbum {
-    let kappa = v.curvatura();
-    let next = match v.modus() {
-        Modus::Somnium => {
-            let fallen = kappa.saturating_sub(3);
-            if fallen < -64 { -64 } else { fallen }
-        }
-        Modus::AmorFati => {
-            let risen = kappa.saturating_add(2);
-            if risen > 64 { 64 } else { risen }
-        }
-        Modus::Vigilia | Modus::Quies => ((kappa as i16).wrapping_mul(3) / 4) as i8,
+    let moved = match v.modus() {
+        Modus::Somnium => v.curvatura().saturating_sub(3),
+        Modus::AmorFati => v.curvatura().saturating_add(2),
+        Modus::Vigilia | Modus::Quies => ((v.curvatura() as i16).wrapping_mul(3) / 4) as i8,
     };
-    v.with_curvatura(next)
+    v.with_curvatura(if moved < -CURVATURE_BOUND {
+        -CURVATURE_BOUND
+    } else if moved > CURVATURE_BOUND {
+        CURVATURE_BOUND
+    } else {
+        moved
+    })
 }
 
 /// Whether the figure sleeps (REQ-L3-02, REQ-L4-06): the event is the recognition and its age is
@@ -1428,6 +1437,30 @@ mod tests {
         );
         let (v15, _) = visit(v.with_conatus(199), m, DAEMON);
         assert_eq!((v15.modus(), v15.onus()), (Modus::Vigilia, 66));
+        // Only a clinamen awaiting its place yields to a persona: a special event, whatever its
+        // branch, never does, and the recognition is not replaced (`eventus` 12 with `ramus` 3
+        // is a persisted word, not a state the laws reach).
+        assert_eq!(
+            persona(v, m.with_eventus(7), 128, 60, false),
+            Some(DIOGENES)
+        );
+        for eventus in 8..=15u8 {
+            let special = m.with_eventus(eventus);
+            let at = std::format!("eventus {eventus}");
+            assert_eq!(persona(v, special, 128, 60, false), None, "{at}");
+            assert_eq!(persona(v, special, 128, 0, true), None, "{at}");
+            let heraclitus = v.with_ascensus(100);
+            assert_eq!(persona(heraclitus, special, 190, 60, false), None, "{at}");
+            let daemon = v.with_ascensus(250);
+            assert_eq!(persona(daemon, special, 31, 1800, false), None, "{at}");
+        }
+        let recognition = m.with_eventus(AGNITIO).with_gradus(10);
+        let (w, kept, n) = event(v, recognition, 128, 3600, false);
+        assert_eq!((w, n), (v, Nuntius::NIHIL));
+        assert_eq!(
+            (kept.eventus(), kept.ramus(), kept.gradus()),
+            (AGNITIO, 3, 11)
+        );
     }
 
     /// Quies first; a stimulus wakes the dreamer; the dream needs night, calm, absence and
@@ -1518,7 +1551,8 @@ mod tests {
         assert_eq!(agnitio(dream.with_conatus(240), m).0.conatus(), 255);
     }
 
-    /// Curvature per tick by mode (REQ-L4-11).
+    /// Curvature per tick by mode, limited to −64..=64 in every mode: a value beyond the bound
+    /// comes back to the bound on its side, from either side and under any mode (REQ-L4-11).
     #[test]
     fn curvature_dynamics() {
         use Modus::{AmorFati, Quies, Somnium, Vigilia};
@@ -1530,13 +1564,26 @@ mod tests {
                 c(Somnium, 0),
                 c(Somnium, -62),
                 c(Somnium, -64),
-                c(Somnium, -128)
+                c(Somnium, -128),
+                c(Somnium, 66),
+                c(Somnium, 67),
+                c(Somnium, 68),
+                c(Somnium, 70),
+                c(Somnium, 127)
             ],
-            [-3, -64, -64, -64]
+            [-3, -64, -64, -64, 63, 64, 64, 64, 64]
         );
         assert_eq!(
-            [c(AmorFati, 0), c(AmorFati, 63), c(AmorFati, 127)],
-            [2, 64, 64]
+            [
+                c(AmorFati, 0),
+                c(AmorFati, 63),
+                c(AmorFati, 127),
+                c(AmorFati, -65),
+                c(AmorFati, -66),
+                c(AmorFati, -67),
+                c(AmorFati, -128)
+            ],
+            [2, 64, 64, -63, -64, -64, -64]
         );
         assert_eq!(
             [
@@ -1544,9 +1591,16 @@ mod tests {
                 c(Vigilia, 64),
                 c(Vigilia, 1),
                 c(Vigilia, -1),
-                c(Quies, 40)
+                c(Quies, 40),
+                c(Vigilia, 85),
+                c(Vigilia, 86),
+                c(Vigilia, 87),
+                c(Vigilia, 127),
+                c(Vigilia, -128),
+                c(Quies, 127),
+                c(Quies, -128)
             ],
-            [-48, 48, 0, 0, 30]
+            [-48, 48, 0, 0, 30, 63, 64, 64, 64, -64, 64, -64]
         );
         let mut v = Verbum::new(0).with_curvatura(-64);
         for _ in 0..16 {
@@ -1590,12 +1644,18 @@ mod tests {
         ));
     }
 
-    /// The numbers the laws share with the fields and the corpus: `gradus` and `tranquillitas`
-    /// saturate at the largest value of their bits, the eight clinamina are the events that
-    /// have a band, the five lines of a chronicle show before its clinamen closes, and a special
-    /// event outlasts the two lines of the recognition (REQ-L4-03, REQ-L4-04, REQ-L4-09).
+    /// The numbers the laws share with the fields, the corpus and the projection: `gradus` and
+    /// `tranquillitas` saturate at the largest value of their bits, the eight clinamina are the
+    /// events that have a band, the five lines of a chronicle show before its clinamen closes, a
+    /// special event outlasts the two lines of the recognition, and the bound of the curvature
+    /// is the one at which |κ|·r² reaches 1 for the largest r² of the frame (REQ-L4-03,
+    /// REQ-L4-04, REQ-L4-09, REQ-L4-11).
     #[test]
     fn law_constants() {
+        assert_eq!(
+            i64::from(CURVATURE_BOUND) * crate::spatium::WARP_R2_MAX,
+            128 << 16
+        );
         assert_eq!(GRADUS_MAX, Memoria::new(0).with_gradus(u16::MAX).gradus());
         assert_eq!(
             TRANQUILLITAS_MAX,
@@ -2041,17 +2101,20 @@ mod tests {
         assert!(closings > 0 && endings > 0);
     }
 
-    /// Curvature over the whole `i8` domain: Somnium falls by 3 down to −64, affirmation rises
-    /// by 2 up to +64, Vigilia and Quies shrink by three quarters toward 0, and nothing else of
-    /// the word moves (REQ-L4-11).
+    /// Curvature over the whole `i8` domain: Somnium falls by 3, affirmation rises by 2, Vigilia
+    /// and Quies shrink by three quarters toward 0, the result is limited to −64..=64 in every
+    /// mode, and nothing else of the word moves (REQ-L4-11).
     #[test]
     fn curvature_over_the_domain() {
         for k in i8::MIN..=i8::MAX {
             let wide = i32::from(k);
-            let expected = |mo: Modus| match mo {
-                Modus::Somnium => (wide - 3).max(-64),
-                Modus::AmorFati => (wide + 2).min(64),
-                Modus::Vigilia | Modus::Quies => wide * 3 / 4,
+            let expected = |mo: Modus| {
+                let moved = match mo {
+                    Modus::Somnium => wide - 3,
+                    Modus::AmorFati => wide + 2,
+                    Modus::Vigilia | Modus::Quies => wide * 3 / 4,
+                };
+                moved.clamp(-64, 64)
             };
             for mo in [
                 Modus::Vigilia,
