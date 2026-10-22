@@ -33,10 +33,16 @@ impl Fx {
         Self(sat((i as i64).wrapping_shl(16)))
     }
 
-    /// The ratio `num / den`; a zero denominator saturates by the sign of `num`.
+    /// The ratio `num / den`, exact to the unit for every representable result and saturating
+    /// beyond; a zero denominator saturates by the sign of `num`.
     #[must_use]
     pub const fn from_ratio(num: i32, den: i32) -> Self {
-        Self::from_int(num).div(Self::from_int(den))
+        match (num as i64).wrapping_shl(16).checked_div(den as i64) {
+            Some(q) => Self(sat(q)),
+            None if num > 0 => Self(i32::MAX),
+            None if num < 0 => Self(i32::MIN),
+            None => Self::ZERO,
+        }
     }
 
     /// The floor of the value as an integer.
@@ -163,6 +169,8 @@ const CORDIC_K: i64 = 10_188_012;
 
 /// Rotates `(x, y)` by `angle` (1/65 536 of a turn) with 16 CORDIC iterations: shifts and
 /// additions only, with eight guard bits on the vector and on the angle (Volder, 1959; REQ-L2-04).
+/// Total over the whole type: the error is at most 4 units plus 2⁻¹⁵ of the magnitude, and the
+/// result saturates to the `i32` range.
 #[must_use]
 pub fn cordic(x: Fx, y: Fx, angle: u16) -> (Fx, Fx) {
     let mut z = i64::from(angle);
@@ -196,8 +204,14 @@ pub fn cordic(x: Fx, y: Fx, angle: u16) -> (Fx, Fx) {
         }
     }
     (
-        Fx(sat(px.wrapping_mul(CORDIC_K).wrapping_shr(32))),
-        Fx(sat(py.wrapping_mul(CORDIC_K).wrapping_shr(32))),
+        Fx(sat(px
+            .wrapping_shr(8)
+            .wrapping_mul(CORDIC_K)
+            .wrapping_shr(24))),
+        Fx(sat(py
+            .wrapping_shr(8)
+            .wrapping_mul(CORDIC_K)
+            .wrapping_shr(24))),
     )
 }
 
@@ -229,12 +243,12 @@ pub const fn scatter64(k: u64, bits: u32) -> u64 {
 /// (REQ-L2-06). The factor is floored at 1/8 so nothing collapses onto the center.
 #[must_use]
 pub const fn warp(x: i16, y: i16, kappa: i8) -> (i16, i16) {
-    let (xi, yi) = (x as i32, y as i32);
+    let (xi, yi) = (x as i64, y as i64);
     let r2 = xi
         .wrapping_mul(xi)
         .wrapping_add(yi.wrapping_mul(yi))
         .wrapping_shr(8);
-    let mut factor = 256i32.wrapping_add((kappa as i32).wrapping_mul(r2).wrapping_shr(7));
+    let mut factor = 256i64.wrapping_add((kappa as i64).wrapping_mul(r2).wrapping_shr(7));
     if factor < 32 {
         factor = 32;
     }
@@ -244,10 +258,10 @@ pub const fn warp(x: i16, y: i16, kappa: i8) -> (i16, i16) {
 }
 
 /// Clamps to the `i16` range.
-const fn clamp_i16(v: i32) -> i16 {
-    if v > i16::MAX as i32 {
+const fn clamp_i16(v: i64) -> i16 {
+    if v > i16::MAX as i64 {
         i16::MAX
-    } else if v < i16::MIN as i32 {
+    } else if v < i16::MIN as i64 {
         i16::MIN
     } else {
         v as i16
@@ -278,15 +292,28 @@ pub const fn dimetric(x: i32, y: i32, z: i32) -> (i32, i32) {
 
 /// Position on the closed staircase of four flights of `span` steps around `(cx, cy)`, with
 /// the stratum class that lets the last flight pass behind the first (REQ-L2-10). Returns
-/// `(x, y, class)`; `position(t + 4·span) = position(t)`.
+/// `(x, y, class)`; the whole triple is periodic: `position(t + 4·span) = position(t)`. The
+/// class is 0 on the first flight and 2 on the last for every `span`; `span` is clamped to
+/// 1..=16 384.
 #[must_use]
 pub const fn penrose(step: u32, cx: i32, cy: i32, span: u32) -> (i32, i32, u8) {
-    let span = if span == 0 { 1 } else { span };
-    let phase = match step.checked_div(span) {
+    let span = if span == 0 {
+        1
+    } else if span > 16_384 {
+        16_384
+    } else {
+        span
+    };
+    let lap_len = span.wrapping_mul(4);
+    let lap = match step.checked_rem(lap_len) {
+        Some(r) => r,
+        None => 0,
+    };
+    let phase = match lap.checked_div(span) {
         Some(q) => q & 3,
         None => 0,
     };
-    let local = match step.checked_rem(span) {
+    let local = match lap.checked_rem(span) {
         Some(r) => r as i32,
         None => 0,
     };
@@ -304,9 +331,8 @@ pub const fn penrose(step: u32, cx: i32, cy: i32, span: u32) -> (i32, i32, u8) {
             s.wrapping_shr(1).wrapping_neg().wrapping_add(half),
         ),
     };
-    let third = span.wrapping_mul(4).wrapping_div(3);
-    let class = match step.checked_div(if third == 0 { 1 } else { third }) {
-        Some(q) => (q % 3) as u8,
+    let class = match lap.wrapping_mul(3).checked_div(lap_len) {
+        Some(q) => q as u8,
         None => 0,
     };
     (cx.wrapping_add(u), cy.wrapping_add(v), class)
@@ -361,10 +387,13 @@ pub struct Compositio {
     pub boulder_scale: u16,
 }
 
-/// ⌊`len` · `ratio`⌋ for a non-negative pixel length.
+/// ⌊`len` · `ratio`⌋ for a pixel length and a ratio in 0..=1, exact for every `u16`.
 const fn part(len: u16, ratio: Fx) -> u16 {
-    Fx::from_int(len as i32).mul(ratio).to_int() as u16
+    ((len as u64).wrapping_mul(ratio.0 as u64) >> 16) as u16
 }
+
+/// 8·δS in Q16.16: the divisor of the margin law m = ⌊W/(8·δS)⌋.
+const SILVER_OCTUPLE: u64 = (SILVER.0 as u64) * 8;
 
 /// Lays out a frame of `w`×`h` pixels with `lines` chronicle lines (REQ-L2-11).
 #[must_use]
@@ -377,9 +406,7 @@ pub const fn compositio(width: u16, height: u16, lines: u8) -> Compositio {
         by_height
     };
     let scale = if scale0 == 0 { 1u16 } else { scale0 as u16 };
-    let margin = Fx::from_int(width as i32)
-        .div(SILVER.mul(Fx::from_int(8)))
-        .to_int() as u16;
+    let margin = ((width as u64) << 16).wrapping_div(SILVER_OCTUPLE) as u16;
     let plinth = margin.saturating_add((lines as u16).saturating_mul(10).saturating_mul(scale));
     let scene_h = height.saturating_sub(plinth);
     let sky_right = part(width, PHI_INV);
@@ -412,10 +439,10 @@ pub const fn compositio(width: u16, height: u16, lines: u8) -> Compositio {
         None => 0,
     };
     let figure_h = part(scene_h, PHI_INV3);
-    let boulder_d = Fx::from_int(figure_h as i32)
-        .mul(PHI_INV)
-        .add(Fx(0xFFFF))
-        .to_int() as u16;
+    let boulder_d = ((figure_h as u64)
+        .wrapping_mul(PHI_INV.0 as u64)
+        .wrapping_add(0xFFFF)
+        >> 16) as u16;
     let boulder_scale = {
         let q = boulder_d.saturating_add(4).wrapping_div(8);
         if q == 0 { 1 } else { q }
@@ -466,6 +493,12 @@ mod tests {
         assert_eq!(Fx::from_int(40_000), max);
         assert_eq!(Fx::from_int(-40_000), min);
         assert_eq!(Fx::from_ratio(-7, 2).to_int(), -4);
+        assert_eq!(Fx::from_ratio(40_000, 2), Fx(1_310_720_000));
+        assert_eq!(Fx::from_ratio(1, 100_000), Fx(0));
+        assert_eq!(Fx::from_ratio(3, 0), max);
+        assert_eq!(Fx::from_ratio(-3, 0), min);
+        assert_eq!(Fx::from_ratio(0, 0), Fx::ZERO);
+        assert_eq!(Fx::from_ratio(i32::MAX, 1), max);
         assert_eq!(max.add(Fx::ONE), max);
         assert_eq!(min.sub(Fx::ONE), min);
     }
@@ -517,6 +550,42 @@ mod tests {
         }
     }
 
+    /// Rotations by zero and by a half turn keep any vector within 2⁻¹⁵ of its magnitude plus 4
+    /// units, even at the extremes of the type.
+    #[test]
+    fn cordic_total_over_i32() {
+        for (x, y) in [
+            (i32::MAX, i32::MAX),
+            (i32::MIN, 0),
+            (0, i32::MIN),
+            (1 << 30, -(1 << 30)),
+        ] {
+            let (rx, ry) = cordic(Fx(x), Fx(y), 0);
+            let tol = (i64::from(x).abs() + i64::from(y).abs()) / 32_768 + 4;
+            assert!(
+                (i64::from(rx.0) - i64::from(x)).abs() <= tol,
+                "x {x} -> {}",
+                rx.0
+            );
+            assert!(
+                (i64::from(ry.0) - i64::from(y)).abs() <= tol,
+                "y {y} -> {}",
+                ry.0
+            );
+            let (hx, hy) = cordic(Fx(x), Fx(y), 32_768);
+            assert!(
+                (i64::from(hx.0) + i64::from(x)).abs() <= tol,
+                "half turn x {x} -> {}",
+                hx.0
+            );
+            assert!(
+                (i64::from(hy.0) + i64::from(y)).abs() <= tol,
+                "half turn y {y} -> {}",
+                hy.0
+            );
+        }
+    }
+
     /// The dispersion constants are the golden-ratio reciprocals of 2³² and 2⁶⁴ (REQ-L2-05).
     #[test]
     fn knuth_constants() {
@@ -564,6 +633,10 @@ mod tests {
             );
         }
         assert_eq!(warp(256, 0, -64), (128, 0));
+        assert_eq!(warp(i16::MIN, i16::MIN, 127), (i16::MIN, i16::MIN));
+        assert_eq!(warp(i16::MAX, 0, 127), (i16::MAX, 0));
+        let (cx, cy) = warp(i16::MIN, i16::MIN, -128);
+        assert!(cx > i16::MIN / 2 && cy > i16::MIN / 2 && cx < 0 && cy < 0);
         assert_eq!(warp(0, 0, -64), (0, 0));
     }
 
@@ -639,6 +712,25 @@ mod tests {
         );
         assert_eq!((l0, l3), (0, 2));
         assert!(dominates(l0, l3));
+        for span in [1u32, 2, 3, 7, 23, 24, 25, 100] {
+            for t in 0..8 * span {
+                assert_eq!(
+                    penrose(t, 0, 0, span),
+                    penrose(t + 4 * span, 0, 0, span),
+                    "span {span} t {t}"
+                );
+                let lap = t % (4 * span);
+                let (_, _, class) = penrose(t, 0, 0, span);
+                assert_eq!(u32::from(class), lap * 3 / (4 * span), "span {span} t {t}");
+                let first = penrose(lap % span, 0, 0, span).2;
+                let last = penrose(3 * span + lap % span, 0, 0, span).2;
+                assert!(
+                    dominates(first, last),
+                    "span {span} lap {lap}: {first} vs {last}"
+                );
+            }
+        }
+        assert_eq!(penrose(5, 0, 0, u32::MAX), penrose(5, 0, 0, 16_384));
         for flight in 0..2u32 {
             let (_, ya, _) = penrose(flight * span, 100, 100, span);
             let (_, yb, _) = penrose(flight * span + span - 1, 100, 100, span);
@@ -682,6 +774,15 @@ mod tests {
         assert_eq!((c.figure_h, c.boulder_d, c.boulder_scale), (24, 15, 2));
         let big = compositio(1920, 1080, 6);
         assert_eq!((big.s, big.m), (6, 99));
+        let huge = compositio(40_000, 22_500, 6);
+        assert_eq!(
+            (huge.s, huge.m, huge.plinth, huge.scene_h),
+            (125, 2071, 9571, 12_929)
+        );
+        assert_eq!(
+            (huge.sky.w, huge.sky.h, huge.slope.0.x, huge.figure_h),
+            (22_650, 2867, 15_278, 3052)
+        );
         let tall = compositio(360, 800, 6);
         assert_eq!(tall.s, 1);
         assert_eq!(tall.glyphs_per_line, 54);
