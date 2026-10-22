@@ -7,6 +7,8 @@ use crate::hospes::{Facultates, Indicia, Lingua, Regimen};
 use crate::mundus::Mundus;
 use crate::verbum::Modus;
 
+pub use crate::arbitrium::Registrum;
+
 /// Family of the palette.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tonus {
@@ -18,21 +20,6 @@ pub enum Tonus {
     Frigus,
     /// Gold in the brightest tone: affirmation.
     Aurum,
-}
-
-/// Scale of the chronicle text (`docs/07-narrativa.md` §3).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Registrum {
-    /// Seconds; the body and the object.
-    Intimum,
-    /// Minutes; an animal, a plant, a craftsman.
-    Vivum,
-    /// Days to years; a city, a trade, a gate.
-    Civile,
-    /// Centuries; a civilization, a lineage.
-    Epochale,
-    /// Ideas; what is lost or gained to knowledge.
-    Abstractum,
 }
 
 /// The chord: every channel of form reads only this (REQ-L5-11).
