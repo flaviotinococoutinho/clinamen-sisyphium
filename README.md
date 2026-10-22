@@ -14,8 +14,8 @@ nos crates e no ABI: `sisyphium`.
 
 ## Estado
 
-Checkpoint presente: 1 (substrato e natureza: `verbum`, `memoria`, `natura`, `ephemeris`,
-`spatium`, `hospes`, `mundus`). Evidências de cada checkpoint estão no PR correspondente e na
+Checkpoint presente: 2 (signo e corpo: `concentus`, `signum` com pixel, raster, fonte, céu,
+encosta, moldura, compositor e quatro stili; `corpus`; quadros-ouro). Evidências de cada checkpoint estão no PR correspondente e na
 mensagem da tag `cp/N-assunto`.
 
 ## Verificação
