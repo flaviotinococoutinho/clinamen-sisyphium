@@ -150,15 +150,15 @@ mod tests {
 
     /// Six lines from the six bits, bit 0 at the bottom; 1 = unbroken (REQ-L5-07).
     #[test]
-    fn hexagram_lines_from_bits() {
+    fn hexagram_lines() {
         assert_eq!(
-            hexagram_lines(0b10_1010),
+            super::hexagram_lines(0b10_1010),
             [false, true, false, true, false, true]
         );
-        assert_eq!(hexagram_lines(0b11_1111), [true; 6]);
-        assert_eq!(hexagram_lines(0), [false; 6]);
+        assert_eq!(super::hexagram_lines(0b11_1111), [true; 6]);
+        assert_eq!(super::hexagram_lines(0), [false; 6]);
         assert_eq!(
-            hexagram_lines(0b100_0001),
+            super::hexagram_lines(0b100_0001),
             [true, false, false, false, false, false],
             "bit 6 ignored"
         );

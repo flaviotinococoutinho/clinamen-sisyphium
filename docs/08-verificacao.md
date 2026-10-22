@@ -57,12 +57,16 @@ microssegundos; tamanho do binário `sisyphium-tabula` em bytes após `strip`; t
 
 ## 7. Cenários dos quadros-ouro
 
+Os quadros têm 320×180 pixels, salvo indicação, e as horas são locais (−03:00).
+
 | Cenário | `Mundus` | `Indicia` | `Regimen` |
 | --- | --- | --- | --- |
 | vigilia diurna | genesis(1) após 4 096 ticks | 2026-06-21 12:00 local; energia 255; sismo 0 | Creta, 4 estratos, 42 ms, todas as camadas, 6 linhas |
 | acedia ao crepúsculo | genesis(2) após 4 096 ticks com onus forçado a 160 | 2026-09-22 18:30; energia 120 | Musivum, 2 estratos, 125 ms |
 | somnium noturno | genesis(3) com modus Somnium e curvatura −48 | 2026-12-21 02:30; energia 200; ociosidade 3 600 s | Creta, 4 estratos |
-| quies | genesis(4) | 2026-03-20 09:00; energia 20 | Bicolor, 1 estrato, 60 000 ms |
+| quies | genesis(4) com modus Quies | 2026-03-20 09:00; energia 20 | Bicolor, 1 estrato, 60 000 ms |
+| littera | o mundo de vigilia diurna | como vigilia diurna | Littera, demais campos como vigilia diurna |
+| somnium 1920×1080 | o mundo de somnium noturno | como somnium noturno | Creta, 4 estratos, quadro de 1920×1080 |
 
 Os hashes são constantes nos testes; uma mudança de forma intencional atualiza as constantes no
 mesmo commit que a causa.
