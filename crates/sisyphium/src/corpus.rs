@@ -4,7 +4,7 @@
 
 use crate::signum::pixel::LABEL_NONE;
 use crate::signum::raster::{Modo, Pictor};
-use crate::spatium::isqrt;
+use crate::spatium::{isqrt, sin};
 use crate::verbum::{Modus, Verbum};
 
 /// Posture of the figure (REQ-L3-02).
@@ -18,25 +18,57 @@ pub enum Postura {
     Genua,
     /// Standing still, arms down.
     Contemplans,
-    /// Lying at the foot of the slope, head against the boulder.
+    /// Lying at the foot of the slope, the head uphill against the boulder.
     Dormiens,
     /// Turned toward the observer.
     Spectans,
 }
 
-/// Phase of the gait, 0..=3, at `cadentia` steps per minute, four frames per step
-/// (REQ-L3-01); a still world (`cadentia` 0) stays at frame 0.
+/// Amplitude of the first sine of the gait, in Q16.16 frames per step per minute of base
+/// cadence: 0.03·(4/60 000)·7 500/(2π)·65 536 = 156.46, rounded (REQ-L3-01). The sine of
+/// period 7 500·2ᵏ ms carries 2ᵏ times this amplitude, so each of the four sines adds ±3 % to
+/// the base rate.
+pub const GAIT_SWAY: i64 = 156;
+
+/// Frames of the gait in Q16.16 within the minute (REQ-L3-01): with t = `epoch_ms` mod 60 000
+/// and c = `cadentia`, 4·c·t/60 000 plus Σₖ Aₖ·sin(2π·t/Pₖ + k·π/2) for k = 0..=3, with
+/// Pₖ = 7 500·2ᵏ ms and Aₖ = 2ᵏ·c·[`GAIT_SWAY`] (Bhaskara's sine). The rate stays within ±12 %
+/// of the base, so the count never decreases; every period divides the minute, so at the turn
+/// of the minute the count drops by exactly 4·c, a whole number of steps of four frames.
+#[must_use]
+pub const fn gait_frames(epoch_ms: i64, cadentia: u8) -> i64 {
+    let t = epoch_ms.rem_euclid(60_000);
+    let c = cadentia as i64;
+    let mut frames = c
+        .wrapping_mul(4)
+        .wrapping_mul(t)
+        .wrapping_mul(65_536)
+        .wrapping_div(60_000);
+    let mut k = 0u32;
+    while k < 4 {
+        let period = 7_500i64.wrapping_shl(k);
+        let within = match t.checked_rem_euclid(period) {
+            Some(r) => r,
+            None => 0,
+        };
+        let turn = match within.wrapping_mul(65_536).checked_div(period) {
+            Some(q) => q,
+            None => 0,
+        }
+        .wrapping_add((k as i64).wrapping_mul(16_384));
+        let amplitude = c.wrapping_shl(k).wrapping_mul(GAIT_SWAY);
+        let sine = sin(turn as u16).0 as i64;
+        frames = frames.wrapping_add(amplitude.wrapping_mul(sine).wrapping_shr(16));
+        k = k.wrapping_add(1);
+    }
+    frames
+}
+
+/// Phase of the gait, 0..=3: the whole frames of [`gait_frames`] modulo 4 (REQ-L3-01); a still
+/// world (`cadentia` 0) stays at frame 0.
 #[must_use]
 pub const fn gait_phase(epoch_ms: i64, cadentia: u8) -> u8 {
-    if cadentia == 0 {
-        return 0;
-    }
-    let within_minute = epoch_ms.rem_euclid(60_000);
-    let frames = within_minute
-        .wrapping_mul(cadentia as i64)
-        .wrapping_mul(4)
-        .wrapping_div(60_000);
-    (frames & 3) as u8
+    (gait_frames(epoch_ms, cadentia).wrapping_shr(16) & 3) as u8
 }
 
 /// The posture as a pure function of the state and of the moment (REQ-L3-02), in this
@@ -97,8 +129,8 @@ pub struct Figura {
     pub linea: u8,
 }
 
-/// Joint positions in units of h/24, y upward from the foot: hip, shoulder, head top-left,
-/// back foot, front foot, back hand, front hand.
+/// Joint positions in units of h/24, y upward from the foot, x uphill: hip, shoulder, head
+/// top-left, back foot, front foot, back hand, front hand.
 struct Ossa {
     /// Hip.
     hip: (i32, i32),
@@ -156,10 +188,10 @@ const fn ossa(postura: Postura, phase: u8) -> Ossa {
         },
         Postura::Dormiens => Ossa {
             hip: (0, 2),
-            shoulder: (-8, 3),
-            head: (-13, 5),
-            feet: [(9, 0), (10, 1)],
-            hands: [(-6, 1), (-4, 1)],
+            shoulder: (8, 3),
+            head: (9, 5),
+            feet: [(-9, 0), (-10, 1)],
+            hands: [(6, 1), (4, 1)],
         },
         Postura::Spectans => Ossa {
             hip: (0, 10),
@@ -171,16 +203,23 @@ const fn ossa(postura: Postura, phase: u8) -> Ossa {
     }
 }
 
-/// Draws the figure from its skeleton: lines of `linea`·`s` pixels and a solid 4-unit head
-/// block without features (REQ-L3-05). Returns the head block `(x, y, size)` in frame pixels.
+/// A skeleton coordinate of `k` units of h/24 in pixels: round(k·h/24), half away from zero.
+const fn joint(k: i32, h: u16) -> i32 {
+    let n = (k as i64).wrapping_mul(h as i64);
+    let q = (n.unsigned_abs().wrapping_add(12) / 24) as i32;
+    if n < 0 { q.wrapping_neg() } else { q }
+}
+
+/// Draws the figure from its skeleton: joints at round(k·h/24) pixels from the foot, lines of
+/// `linea`·`s` pixels and a solid head block of side max(1, round(4·h/24)) without features
+/// (REQ-L2-11, REQ-L3-05). Returns the head block `(x, y, size)` in frame pixels.
 pub fn draw_figure(pictor: &mut Pictor, figura: &Figura, lum: u8, stratum: u8) -> (i32, i32, u16) {
-    let unit = i32::from(figura.h).wrapping_div(24).max(1);
     let thick = figura.linea.max(1).saturating_mul(figura.s.max(1) as u8);
     let bones = ossa(figura.postura, figura.phase);
     let at = |p: (i32, i32)| {
         (
-            figura.foot.0.wrapping_add(p.0.wrapping_mul(unit)),
-            figura.foot.1.wrapping_sub(p.1.wrapping_mul(unit)),
+            figura.foot.0.wrapping_add(joint(p.0, figura.h)),
+            figura.foot.1.wrapping_sub(joint(p.1, figura.h)),
         )
     };
     let hip = at(bones.hip);
@@ -212,7 +251,7 @@ pub fn draw_figure(pictor: &mut Pictor, figura: &Figura, lum: u8, stratum: u8) -
             Modo::Super,
         );
     }
-    let size = unit.wrapping_mul(4);
+    let size = joint(4, figura.h).max(1);
     let head = at(bones.head);
     pictor.fill(head.0, head.1, size, size, lum, stratum, false);
     (head.0, head.1, size as u16)
@@ -284,21 +323,81 @@ mod tests {
     use crate::signum::pixel::{VOID, lum_of};
     use crate::signum::raster::Pictor;
     use crate::verbum::{Modus, Verbum};
+    use std::vec::Vec;
 
-    /// Four frames per step at 64 steps per minute: a full step every 937.5 ms (REQ-L3-01).
+    /// Noon of the 2026 June solstice at −03:00.
+    const NOON: i64 = 1_782_054_000_000;
+
+    /// Four frames per step at the base cadence (REQ-L3-01): across a minute the count grows by
+    /// 4·c frames, a still world stays at frame 0, and every frame of the step appears.
     #[test]
     fn gait_cadence() {
-        assert_eq!(gait_phase(0, 64), 0);
-        assert_eq!(gait_phase(937, 64), 3);
-        assert_eq!(gait_phase(938, 64), 0);
-        assert_eq!(gait_phase(60_000, 64), 0);
-        assert_eq!(gait_phase(60_000 / 64 / 4 + 1, 64), 1);
-        assert_eq!(gait_phase(5_000, 0), 0, "a still world has no gait");
-        let mut seen = [false; 4];
-        for ms in (0..4000).step_by(50) {
-            seen[usize::from(gait_phase(ms, 64))] = true;
+        for c in [48u8, 64] {
+            for minute in [0i64, NOON - NOON % 60_000, -120_000] {
+                let span = gait_frames(minute + 59_999, c) - gait_frames(minute, c);
+                let expected = 4 * i64::from(c) * 65_536;
+                assert!(
+                    (expected - 2 * 65_536..=expected).contains(&span),
+                    "c {c}: a minute spans {span} of {expected}"
+                );
+            }
+            let mut seen = [false; 4];
+            for ms in (0..4000).step_by(50) {
+                seen[usize::from(gait_phase(NOON + ms, c))] = true;
+            }
+            assert!(seen.iter().all(|&s| s), "c {c}: frames seen {seen:?}");
         }
-        assert!(seen.iter().all(|&s| s));
+        for ms in [0i64, 937, 5_000, NOON, -1] {
+            assert_eq!(gait_phase(ms, 0), 0, "a still world has no gait");
+        }
+        let sway = 0.03 * (4.0 / 60_000.0) * 7_500.0 / core::f64::consts::TAU * 65_536.0;
+        assert!(
+            (GAIT_SWAY as f64 - sway).abs() <= 0.5,
+            "{GAIT_SWAY} vs {sway}"
+        );
+    }
+
+    /// The phase never steps back and never skips: ten minutes at 24 Hz advance 0 or 1 frame per
+    /// sample, at 4 Hz 0..=2, exactly 4·c frames in sixty seconds, and the rate breathes: some
+    /// window of two seconds runs at least 5 % above the base rate and some at least 5 % below
+    /// (REQ-L3-01).
+    #[test]
+    fn gait_monotone() {
+        for c in [48u8, 64] {
+            let at = |n: i64, hz: i64| NOON + n * 1000 / hz;
+            for (hz, allowed) in [(24i64, 0..=1u8), (4, 0..=2)] {
+                for n in 0..600 * hz {
+                    let step =
+                        gait_phase(at(n + 1, hz), c).wrapping_sub(gait_phase(at(n, hz), c)) & 3;
+                    assert!(
+                        allowed.contains(&step),
+                        "c {c} at {hz} Hz, sample {n}: {step}"
+                    );
+                }
+            }
+            let start = NOON + 12_345;
+            let advance: u32 = (0..1440)
+                .map(|n| {
+                    let (a, b) = (start + n * 1000 / 24, start + (n + 1) * 1000 / 24);
+                    u32::from(gait_phase(b, c).wrapping_sub(gait_phase(a, c)) & 3)
+                })
+                .sum();
+            assert_eq!(advance, 4 * u32::from(c), "c {c}: frames in sixty seconds");
+            let minute = NOON - NOON % 60_000;
+            let base = 4.0 * f64::from(c) * 2_000.0 * 65_536.0 / 60_000.0;
+            let rates: Vec<f64> = (0..58_000)
+                .step_by(250)
+                .map(|t| {
+                    (gait_frames(minute + t + 2_000, c) - gait_frames(minute + t, c)) as f64 / base
+                })
+                .collect();
+            assert!(rates.iter().any(|&r| r >= 1.05), "c {c}: never 5 % faster");
+            assert!(rates.iter().any(|&r| r <= 0.95), "c {c}: never 5 % slower");
+            assert!(
+                rates.iter().all(|&r| r > 0.85 && r < 1.15),
+                "c {c}: rate out of ±15 %"
+            );
+        }
     }
 
     /// Posture is a pure function of the state (REQ-L3-02).
@@ -406,9 +505,62 @@ mod tests {
         );
     }
 
-    /// The figure fits its box and the head is a solid block without inner holes (REQ-L3-05).
+    /// The figure fits the box [foot.x − h, foot.x + h] × [foot.y − h, foot.y] at every height in
+    /// every posture and gait frame; upright, the top of the head stands round(23·h/24) above the
+    /// foot within one pixel (REQ-L2-11).
     #[test]
-    fn sprite_face_blank_and_fits_box() {
+    fn figure_fits_box() {
+        for h in [4u16, 10, 24, 43, 58, 146] {
+            for postura in [
+                Postura::Erecta,
+                Postura::Curva,
+                Postura::Genua,
+                Postura::Contemplans,
+                Postura::Dormiens,
+                Postura::Spectans,
+            ] {
+                for phase in 0..4u8 {
+                    let mut buf = std::vec![VOID; 320 * 200];
+                    let mut tab = Tabula::new(320, 200, &mut buf).unwrap();
+                    let mut pictor = Pictor::flat(&mut tab);
+                    let foot = (160i32, 180i32);
+                    let f = Figura {
+                        foot,
+                        h,
+                        s: 1,
+                        postura,
+                        phase,
+                        linea: 1,
+                    };
+                    draw_figure(&mut pictor, &f, 14, 0);
+                    let lit: std::vec::Vec<(i32, i32)> = (0..320 * 200)
+                        .filter(|&i| lum_of(buf[i]) == 14)
+                        .map(|i| ((i % 320) as i32, (i / 320) as i32))
+                        .collect();
+                    assert!(!lit.is_empty(), "h {h} {postura:?} {phase}");
+                    let reach = i32::from(h);
+                    for &(x, y) in &lit {
+                        assert!(
+                            (foot.0 - reach..=foot.0 + reach).contains(&x)
+                                && (foot.1 - reach..=foot.1).contains(&y),
+                            "h {h} {postura:?} {phase}: ({x}, {y}) outside the box"
+                        );
+                    }
+                    if postura == Postura::Erecta {
+                        let top = lit.iter().map(|&(_, y)| y).min().unwrap();
+                        let rise = foot.1 - top;
+                        let law = (23.0 * f64::from(h) / 24.0).round() as i32;
+                        assert!((rise - law).abs() <= 1, "h {h}: height {rise} vs {law}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// The face is a solid block of 4×4 pixels without features at the logical height of 24
+    /// pixels, in every posture (REQ-L3-05).
+    #[test]
+    fn sprite_face_blank() {
         for postura in [
             Postura::Erecta,
             Postura::Curva,
@@ -429,20 +581,11 @@ mod tests {
                     phase,
                     linea: 1,
                 };
-                let head = draw_figure(&mut pictor, &f, 14, 0);
-                let lit: std::vec::Vec<(usize, usize)> = (0..64 * 64)
-                    .filter(|&i| lum_of(buf[i]) == 14)
-                    .map(|i| (i % 64, i / 64))
-                    .collect();
-                assert!(!lit.is_empty(), "{postura:?} {phase}");
-                for &(x, y) in &lit {
-                    assert!((32 - 14..=32 + 14).contains(&x), "{postura:?} x {x}");
-                    assert!((56 - 24..=56).contains(&y), "{postura:?} y {y}");
-                }
-                let (hx, hy, hs) = head;
+                let (hx, hy, hs) = draw_figure(&mut pictor, &f, 14, 0);
+                assert_eq!(hs, 4, "{postura:?}: head is 4×4 at the logical height");
                 for dy in 0..hs {
                     for dx in 0..hs {
-                        let (x, y) = ((hx + dx as i32) as usize, (hy + dy as i32) as usize);
+                        let (x, y) = ((hx + i32::from(dx)) as usize, (hy + i32::from(dy)) as usize);
                         assert_eq!(
                             lum_of(buf[x + y * 64]),
                             14,
@@ -450,8 +593,35 @@ mod tests {
                         );
                     }
                 }
-                assert_eq!(hs, 4, "head is 4×4 at scale 1");
             }
+        }
+    }
+
+    /// Asleep after the recognition, the figure lies with the head uphill, toward the boulder
+    /// that stands ahead on the slope (`docs/07-narrativa.md` §6).
+    #[test]
+    fn dormiens_head_toward_boulder() {
+        for h in [24u16, 58] {
+            let mut buf = std::vec![VOID; 200 * 100];
+            let mut tab = Tabula::new(200, 100, &mut buf).unwrap();
+            let mut pictor = Pictor::flat(&mut tab);
+            let f = Figura {
+                foot: (100, 90),
+                h,
+                s: 1,
+                postura: Postura::Dormiens,
+                phase: 0,
+                linea: 1,
+            };
+            let (hx, _, hs) = draw_figure(&mut pictor, &f, 14, 0);
+            assert!(
+                hx > 100,
+                "h {h}: head at x {hx}, the boulder lies to the right"
+            );
+            assert!(
+                hx + i32::from(hs) <= 100 + i32::from(h),
+                "h {h}: head inside the box"
+            );
         }
     }
 

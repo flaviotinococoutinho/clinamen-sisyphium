@@ -2,7 +2,9 @@
 //! the order of `docs/04-arquitetura.md` §5, and the four stili (REQ-L5-03, REQ-L5-09, REQ-H-04).
 
 use crate::concentus::{Concentus, concentus};
-use crate::corpus::{Figura, boulder_texture, draw_boulder, draw_figure, gait_phase, postura};
+use crate::corpus::{
+    Figura, Postura, boulder_texture, draw_boulder, draw_figure, gait_phase, postura,
+};
 use crate::hospes::{
     ANNALES, CAELUM, Cellae, Facultates, HEXAGRAMMA, Indicia, MARGO, PUNCTA, RUINAE, Regimen,
     Stilus, Tabula,
@@ -125,21 +127,29 @@ fn compose_sky(
     }
 }
 
+/// The posture of the figure from the state (REQ-L3-02): contemplative during a persona
+/// (`eventus` 13..=15 with `ramus` 0 and `gradus` < 240) or in Quies, asleep for 64 ticks after
+/// the recognition (`eventus` 12), facing the observer when `leaving`.
+fn figure_posture(mundus: &Mundus, leaving: bool) -> Postura {
+    let memoria = mundus.memoria;
+    let persona =
+        matches!(memoria.eventus(), 13..=15) && memoria.ramus() == 0 && memoria.gradus() < 240;
+    let asleep = memoria.eventus() == 12 && memoria.gradus() < 64;
+    postura(mundus.verbum, persona, asleep, leaving)
+}
+
 /// The figure, its shadow and the boulder on the slope (REQ-L3-01..05).
 fn compose_actors(
     pictor: &mut Pictor,
     comp: &Compositio,
     chord: &Concentus,
     indicia: &Indicia,
-    regimen: &Regimen,
     mundus: &Mundus,
 ) {
     let verbum = mundus.verbum;
-    let memoria = mundus.memoria;
     let scale = comp.s;
     let foot = slope_point(comp, verbum.ascensus());
-    let asleep = memoria.eventus() == 12 && memoria.gradus() < 64;
-    let post = postura(verbum, regimen.tick_ms >= 1000, asleep, indicia.leaving);
+    let post = figure_posture(mundus, indicia.leaving);
     let phase = gait_phase(indicia.epoch_ms, chord.cadentia);
     let shade = i32::from(comp.figure_h).wrapping_div(3);
     pictor.line(
@@ -263,7 +273,7 @@ fn compose(
             0,
         );
     }
-    compose_actors(&mut pictor, &comp, chord, indicia, regimen, mundus);
+    compose_actors(&mut pictor, &comp, chord, indicia, mundus);
     compose_text(&mut pictor, &comp, regimen, mundus, lines);
 }
 
@@ -453,9 +463,9 @@ pub fn render_cellae(
 /// Golden hashes of the four scenarios (REQ-L5-09), recorded after visual inspection.
 #[cfg(test)]
 const GOLDEN: [(&str, u64); 4] = [
-    ("vigilia", 0x6939_00D0_E0E1_CC05),
+    ("vigilia", 0x5660_2C08_3294_6714),
     ("acedia", 0x9F0B_5319_454B_90FC),
-    ("somnium", 0x4C94_B04F_2A22_F5DE),
+    ("somnium", 0x56FB_3FA8_FB73_7897),
     ("quies", 0xD5C6_687C_FD16_F2B7),
 ];
 
@@ -523,6 +533,48 @@ mod tests {
         assert!(a.iter().any(|&p| stratum_of(p) == 0) && a.iter().any(|&p| stratum_of(p) == 2));
         assert_eq!(fnv1a(b""), 0xCBF2_9CE4_8422_2325);
         assert_eq!(fnv1a(b"a"), 0xAF63_DC4C_8601_EC8C);
+    }
+
+    /// The posture comes from the state alone: contemplative during a persona (`eventus`
+    /// 13..=15, `ramus` 0, `gradus` < 240) and in Quies, asleep for 64 ticks after the
+    /// recognition, facing the observer when leaving, upright otherwise; no regimen enters
+    /// (REQ-L3-02).
+    #[test]
+    fn posture_reads_the_persona() {
+        use crate::corpus::Postura;
+        let base = Mundus::genesis(1);
+        let with = |eventus: u8, ramus: u8, gradus: u16| {
+            let mut m = base;
+            m.memoria = m
+                .memoria
+                .with_eventus(eventus)
+                .with_ramus(ramus)
+                .with_gradus(gradus);
+            m
+        };
+        for eventus in 13..=15u8 {
+            for gradus in [0u16, 239] {
+                assert_eq!(
+                    figure_posture(&with(eventus, 0, gradus), false),
+                    Postura::Contemplans
+                );
+            }
+            assert_eq!(
+                figure_posture(&with(eventus, 0, 240), false),
+                Postura::Erecta
+            );
+            assert_eq!(
+                figure_posture(&with(eventus, 1, 10), false),
+                Postura::Erecta
+            );
+        }
+        assert_eq!(figure_posture(&with(12, 0, 63), false), Postura::Dormiens);
+        assert_eq!(figure_posture(&with(12, 0, 64), false), Postura::Erecta);
+        assert_eq!(figure_posture(&with(3, 3, 0), false), Postura::Erecta);
+        let mut quies = base;
+        quies.verbum = quies.verbum.with_modus(Modus::Quies);
+        assert_eq!(figure_posture(&quies, false), Postura::Contemplans);
+        assert_eq!(figure_posture(&with(13, 0, 5), true), Postura::Spectans);
     }
 
     /// Two-tone frames use only luminance 0 and 15 (REQ-L5-03).
@@ -903,7 +955,8 @@ mod tests {
             .with_ascensus(200)
             .with_modus(Modus::Somnium)
             .with_curvatura(-48);
-        let quies = Mundus::genesis(4);
+        let mut quies = Mundus::genesis(4);
+        quies.verbum = quies.verbum.with_modus(Modus::Quies);
         [
             (
                 "vigilia",

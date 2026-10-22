@@ -51,7 +51,9 @@ _kintsugi_).
 
 ## 6. Figura
 
-- Altura S·φ⁻³; rosto de 4×4 px sem traços; a expressão vem da postura, da cadência e da luz.
+- Altura S·φ⁻³: o esqueleto é dado em unidades de h/24, levadas a pixels por round(k·h/24); a cabeça é um
+  bloco liso de lado max(1, round(4·h/24)) que começa na unidade 23 (rosto de 4×4 px sem traços com
+  h = 24, a 320×180); a expressão vem da postura, da cadência e da luz.
 - Silhueta legível em todos os stili em menos de 1 s: a figura e a rocha têm contraste mínimo de 8
   tons com o fundo.
 - Posturas: ereta, curvada, ajoelhada, contemplativa, adormecida, voltada ao observador.
@@ -66,7 +68,9 @@ Paleta de 16 tons entre ardósia (18, 20, 24) e giz (240, 240, 245). `tranquilli
 
 ## 8. Movimento
 
-- Marcha a 64 passos/min modulada por ruído 1/f; respiração visível no torso pela mesma fonte.
+- Marcha a 64 passos/min (48 com `conatus` < 48), com a taxa modulada em ±12 % por quatro senos de
+  períodos 7,5 s, 15 s, 30 s e 60 s e amplitude proporcional ao período (espectro 1/f); a fase nunca
+  recua (REQ-L3-01).
 - Cadência por regimen: 24 Hz (vigilia), 8 Hz (acedia), 4 Hz (estroboscopia), 1/60 Hz (quies).
 - Nada entra em cena sob o olhar: personae entram com o observador ausente há 60 s ou em
   oclusão (REQ-L4-09); ruínas nascem no fecho do ciclo (REQ-L4-07, L4-08); mudanças de
@@ -92,7 +96,7 @@ qualquer desenho e lido por todos os canais. Nenhum canal decide sozinho.
 | Tom | `tonus` 0..=15 e paleta | `onus`, `tranquillitas`, `modus`, `festum` (REQ-L5-02) |
 | Contraste | `contrastus` 8..=15 (diferença mínima figura–fundo) | energia (menor energia, maior contraste), `modus` Quies = 15 |
 | Delimitação | `linea` ∈ {s, 2s} e rótulo de aresta padrão | `tranquillitas` (REQ-L5-05); impossibilia por condição |
-| Cadência | `cadentia` em passos/min e intervalo | regimen; ruído 1/f; `conatus` |
+| Cadência | `cadentia`: cadência base em passos/min (64, 48 ou 0) | regimen (`tick_ms`); `conatus` |
 | Registro do texto | `registrum` ∈ {íntimo, vivo, civil, epocal, abstrato} | linha da crônica revelada; persona; agnitio |
 | Curvatura | `curvatura` aplicada | `curvatura` do `Verbum` e `modus` |
 | Som (índice; sem síntese na 0.1) | `sonus`: altura ∝ 1/√massa, ressonância ∝ massa, respiração 60..=70/min, clique por linha | massa = `onus` + rocha; cadência; crônicas |
