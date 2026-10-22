@@ -94,10 +94,10 @@ nome do teste. Versão 0.1 salvo indicação.
 
 | ID | Requisito | Módulo | Verificação |
 | --- | --- | --- | --- |
-| REQ-L6-01 | Com `occluded`, o tick DEVE aplicar uma mutação ao `automatum`: ⊕ `0xAA` se `onus` > 128, senão rotação circular de 1 bit. O hospedeiro DEVE chamar `step` no máximo uma vez por período de oclusão. | `sensus` | U `occlusion_mutation` |
-| REQ-L6-02 | Anomalia liminar: com `automatism` ≥ 200 ∧ `returned_ms` < 3000, a sombra da figura DEVE apontar para o lado oposto à luz. | `sensus`, `signum` | U `liminal_anomaly_window` |
-| REQ-L6-03 | Evento raro: janela de 4 s ativa quando ctz(hash(`epoch_s` ≫ 2, `clausurae`, `eventus`)) ≥ 13; a cena mostra uma linha de tom 15 do ponto de Hénon no céu até a figura. | `sensus`, `signum` | U `rare_gate_probability` (frequência ≈ 2⁻¹³ em 2²⁰ janelas) |
-| REQ-L6-04 | Inibição de retorno: o quadrante do nó do céu do evento k DEVE ser (3·k) mod 4, percorrendo os 4 quadrantes antes de repetir. | `sensus` | U `inhibition_of_return_cycle` |
+| REQ-L6-01 | Com `occluded`, o tick DEVE aplicar uma mutação ao `automatum`: ⊕ `0xAA` se `onus` > 128, senão rotação circular de 1 bit. O hospedeiro DEVE chamar `step` no máximo uma vez por período de oclusão. | `sensus` | U `occlusion_mutation`; U `occlusion_confined_to_the_ring` |
+| REQ-L6-02 | Anomalia liminar: com `automatism` ≥ 200 ∧ `returned_ms` < 3000, a sombra da figura DEVE apontar para o lado oposto à luz. | `sensus`, `signum` | U `liminal_anomaly_window`; U `liminal_corner_of_the_thresholds` |
+| REQ-L6-03 | Evento raro: janela de 4 s ativa quando ctz(hash(`epoch_s` ≫ 2, `clausurae`, `eventus`)) ≥ 13; a cena mostra uma linha de tom 15 do ponto de Hénon no céu até a figura. | `sensus`, `signum` | U `rare_gate_probability` (frequência ≈ 2⁻¹³ em 2²⁰ janelas); U `rare_window_edges`; U `rare_gate_known_windows` |
+| REQ-L6-04 | Inibição de retorno: o quadrante do nó do céu do evento k DEVE ser (3·k) mod 4, percorrendo os 4 quadrantes antes de repetir. | `sensus` | U `inhibition_of_return_cycle`; U `quadrant_follows_the_modular_law` |
 | REQ-L6-05 | Nenhum mecanismo de L6 PODE depender de contagem de interações nem aumentar a frequência de qualquer evento com a interação. | `sensus` | I revisão da tabela de leis |
 
 ## L7 — Níveis de narração
