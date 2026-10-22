@@ -29,7 +29,9 @@
         clippy::cast_precision_loss,
         clippy::needless_range_loop,
         clippy::manual_range_contains,
-        clippy::naive_bytecount
+        clippy::naive_bytecount,
+        clippy::verbose_bit_mask,
+        clippy::large_stack_arrays
     )
 )]
 
