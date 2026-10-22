@@ -28,7 +28,7 @@ clinamen-sisyphium/
 | `ephemeris` | L1 | fases circadiana, sazonal e lunar; noturno; festum | — |
 | `consilium` | L1 | `Regimen`; busca satisfatória por recozimento | `hospes`, `natura` |
 | `spatium` | L2 | Q16.16; seno de Bhaskara; isqrt; CORDIC; dispersão; projeção de curvatura; estratos; dominância; dimétrica; escada de Penrose; composição | — |
-| `corpus` | L3 | marcha; postura; figuras de blocos; rocha como leitura do `Verbum`; lasca | `verbum`, `natura` |
+| `corpus` | L3 | marcha; postura; figuras de blocos; rocha como leitura do `Verbum`; lasca | `verbum`, `spatium`, `signum::raster`, `signum::pixel` |
 | `arbitrium` | L4 | clinamina; annales (corpus en/pt); leis de onus, conatus, tranquillitas, ascensus; personae; modus; agnitio; fecho; interrupção | `verbum`, `memoria`, `natura`, `ephemeris` |
 | `concentus` | L5 | `Concentus`: vetor de afinação de todos os canais (tom, contraste, espessura, cadência, registro do texto, curvatura, índice sonoro) derivado do estado, da efeméride e do regimen | `verbum`, `ephemeris`, `consilium` |
 | `signum` | L5 | pixel; paleta; stili; fonte; primitivas (linha, disco, retângulo, texto); chicote; grafo do céu; hexagrama; lua; ruínas; máscaras de espaço negativo; compositor de cena | `spatium`, `corpus`, `arbitrium`, `concentus` |
