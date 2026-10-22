@@ -19,4 +19,6 @@
 #[cfg(test)]
 extern crate std;
 
+mod campi;
+pub mod memoria;
 pub mod verbum;

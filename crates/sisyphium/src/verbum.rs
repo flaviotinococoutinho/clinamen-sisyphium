@@ -46,39 +46,7 @@ impl Modus {
     }
 }
 
-/// Reads `width` bits of `bits` starting at `shift`.
-const fn campus(bits: u64, shift: u32, width: u32) -> u64 {
-    bits.wrapping_shr(shift) & u64::MAX.wrapping_shr(64u32.wrapping_sub(width))
-}
-
-/// Writes `value` (truncated to `width` bits) into `bits` at `shift`.
-const fn cum_campo(bits: u64, shift: u32, width: u32, value: u64) -> u64 {
-    let mask = u64::MAX
-        .wrapping_shr(64u32.wrapping_sub(width))
-        .wrapping_shl(shift);
-    (bits & !mask) | (value.wrapping_shl(shift) & mask)
-}
-
-/// Defines a field accessor and its `with_` counterpart from the bit layout.
-macro_rules! campi {
-    ($($(#[$doc:meta])* $get:ident / $with:ident : $t:ty [$shift:literal, $width:literal]),* $(,)?) => {
-        impl Verbum {
-            $(
-                $(#[$doc])*
-                #[must_use]
-                pub const fn $get(self) -> $t {
-                    campus(self.0, $shift, $width) as $t
-                }
-
-                #[doc = concat!("Returns the word with the field read by `", stringify!($get), "` replaced.")]
-                #[must_use]
-                pub const fn $with(self, value: $t) -> Self {
-                    Self::new(cum_campo(self.0, $shift, $width, value as u64))
-                }
-            )*
-        }
-    };
-}
+use crate::campi::{campi, campus, cum_campo};
 
 /// The present state of the world: one 64-bit word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -115,7 +83,7 @@ impl Verbum {
     }
 }
 
-campi! {
+campi! { Verbum {
     /// Galois generator state, bits 0..=15; never zero.
     semen / with_semen: u16 [0, 16],
     /// Vital effort, bits 16..=23 (Spinoza, Ethics III, prop. 6).
@@ -130,7 +98,7 @@ campi! {
     automatum / with_automatum: u8 [48, 8],
     /// Serenity, bits 56..=61 (six bits; shown as a hexagram).
     tranquillitas / with_tranquillitas: u8 [56, 6],
-}
+} }
 
 #[cfg(test)]
 mod tests {
