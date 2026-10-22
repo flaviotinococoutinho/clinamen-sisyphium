@@ -243,24 +243,84 @@ pub const fn scatter64(k: u64, bits: u32) -> u64 {
         .wrapping_shr(64u32.wrapping_sub(bits))
 }
 
-/// Curvature projection on coordinates normalized to the frame center in Q8.8 (−256..=256):
-/// p' = p·(1 + κ|p|²/256) with κ = `kappa`/128; zero is the identity, negative contracts
-/// toward the center (second-order approximation of the Poincaré disk), positive expands
-/// (REQ-L2-06). The factor is floored at 1/8 so nothing collapses onto the center.
+/// Largest squared radius of the curvature projection, in Q16.16: r² = 2, the corner of a square
+/// frame (REQ-L2-06). Beyond it the factor stays constant and the map stays radial and linear.
+pub const WARP_R2_MAX: i64 = 2 << 16;
+
+/// The radial factor of the curvature projection in Q16.16 for a squared radius `r2` in Q16.16,
+/// with κ = `kappa`/128 and `r2` clamped to 0..=[`WARP_R2_MAX`] (REQ-L2-06):
+/// 65 536 + (`kappa`·r2) ≫ 7, that is 1 + κr², for κ ≥ 0; 2³²/(65 536 + (|`kappa`|·r2) ≫ 7),
+/// that is 1/(1 + |κ|r²), for κ < 0. The contraction is monotone while |κ|r² ≤ 1, which holds over
+/// the whole operational domain (|`curvatura`| ≤ 64, r² ≤ 2), and equals 1 + κr² to the second
+/// order (the Poincaré disk).
+#[must_use]
+pub const fn warp_factor(r2: i64, kappa: i8) -> i64 {
+    let r2 = if r2 < 0 {
+        0
+    } else if r2 > WARP_R2_MAX {
+        WARP_R2_MAX
+    } else {
+        r2
+    };
+    let k = kappa as i64;
+    if k >= 0 {
+        65_536i64.wrapping_add(k.wrapping_mul(r2).wrapping_shr(7))
+    } else {
+        let den = 65_536i64.wrapping_add(k.wrapping_neg().wrapping_mul(r2).wrapping_shr(7));
+        match (1i64 << 32).checked_div(den) {
+            Some(f) => f,
+            None => 65_536,
+        }
+    }
+}
+
+/// Side of the block that covers a projected point (REQ-L2-06): under expansion
+/// 1 + ⌈3·`kappa`·r2/2²³⌉, the ceiling of the radial derivative 1 + 3κr² of the map, at most 8,
+/// with `r2` in Q16.16 clamped as in [`warp_factor`]; one pixel without expansion.
+#[must_use]
+pub const fn warp_block(r2: i64, kappa: i8) -> i64 {
+    if kappa <= 0 {
+        return 1;
+    }
+    let r2 = if r2 < 0 {
+        0
+    } else if r2 > WARP_R2_MAX {
+        WARP_R2_MAX
+    } else {
+        r2
+    };
+    let spread = 3i64
+        .wrapping_mul(kappa as i64)
+        .wrapping_mul(r2)
+        .wrapping_add((1 << 23) - 1)
+        .wrapping_shr(23);
+    let side = 1i64.wrapping_add(spread);
+    if side > 8 { 8 } else { side }
+}
+
+/// `d`·`f`/65 536 rounded half away from zero: a displacement scaled by a Q16.16 factor of
+/// [`warp_factor`] (REQ-L2-06). Saturates beyond the `i64` range.
+#[must_use]
+pub const fn warp_scale(d: i64, f: i64) -> i64 {
+    let n = d.saturating_mul(f);
+    let q = (n.unsigned_abs().saturating_add(32_768) >> 16) as i64;
+    if n < 0 { q.wrapping_neg() } else { q }
+}
+
+/// Curvature projection of a point in coordinates normalized to the frame center in Q8.8
+/// (256 = half of the larger dimension), REQ-L2-06: r² = x² + y² in Q16.16, the factor of
+/// [`warp_factor`], and each coordinate scaled by [`warp_scale`] and clamped to the `i16` range.
+/// Zero curvature is the identity; negative contracts toward the center without folding;
+/// positive expands.
 #[must_use]
 pub const fn warp(x: i16, y: i16, kappa: i8) -> (i16, i16) {
     let (xi, yi) = (x as i64, y as i64);
-    let r2 = xi
-        .wrapping_mul(xi)
-        .wrapping_add(yi.wrapping_mul(yi))
-        .wrapping_shr(8);
-    let mut factor = 256i64.wrapping_add((kappa as i64).wrapping_mul(r2).wrapping_shr(7));
-    if factor < 32 {
-        factor = 32;
-    }
-    let px = xi.wrapping_mul(factor).wrapping_shr(8);
-    let py = yi.wrapping_mul(factor).wrapping_shr(8);
-    (clamp_i16(px), clamp_i16(py))
+    let r2 = xi.wrapping_mul(xi).wrapping_add(yi.wrapping_mul(yi));
+    let factor = warp_factor(r2, kappa);
+    (
+        clamp_i16(warp_scale(xi, factor)),
+        clamp_i16(warp_scale(yi, factor)),
+    )
 }
 
 /// Clamps to the `i16` range.
@@ -638,12 +698,89 @@ mod tests {
                 i32::from(ex).abs() + i32::from(ey).abs() > i32::from(x).abs() + i32::from(y).abs()
             );
         }
-        assert_eq!(warp(256, 0, -64), (128, 0));
+        // 256/(1 + 0.5·1) = 170.67, rounded half away from zero.
+        assert_eq!(warp(256, 0, -64), (171, 0));
+        // 256·(1 + 0.5·1) = 384.
+        assert_eq!(warp(256, 0, 64), (384, 0));
         assert_eq!(warp(i16::MIN, i16::MIN, 127), (i16::MIN, i16::MIN));
         assert_eq!(warp(i16::MAX, 0, 127), (i16::MAX, 0));
         let (cx, cy) = warp(i16::MIN, i16::MIN, -128);
         assert!(cx > i16::MIN / 2 && cy > i16::MIN / 2 && cx < 0 && cy < 0);
         assert_eq!(warp(0, 0, -64), (0, 0));
+    }
+
+    /// The projection never folds: along a radius the projected coordinate never decreases, for
+    /// every operational curvature, from the center to the corner of a square frame
+    /// (256·√2 ≈ 362 in Q8.8) (REQ-L2-06).
+    #[test]
+    fn curvature_monotone() {
+        for kappa in -64i8..=64 {
+            let mut previous = i16::MIN;
+            for x in 0i16..=362 {
+                let (px, py) = warp(x, 0, kappa);
+                assert!(px >= previous, "κ {kappa}: x {x} → {px} after {previous}");
+                assert_eq!(py, 0);
+                previous = px;
+            }
+        }
+    }
+
+    /// The factor is 1 + κr² under expansion and 1/(1 + |κ|r²) under contraction, in Q16.16, with
+    /// r² clamped to 0..=2 (REQ-L2-06).
+    #[test]
+    fn curvature_factor_law() {
+        assert_eq!(WARP_R2_MAX, 2 << 16);
+        for kappa in [-128i8, -64, -1, 0, 1, 64, 127] {
+            assert_eq!(warp_factor(0, kappa), 1 << 16, "κ {kappa} at the center");
+            assert_eq!(
+                warp_factor(WARP_R2_MAX, kappa),
+                warp_factor(i64::MAX, kappa),
+                "κ {kappa} beyond the corner"
+            );
+            assert_eq!(warp_factor(-5, kappa), warp_factor(0, kappa));
+            for r2 in (0..=WARP_R2_MAX).step_by(997) {
+                let k = f64::from(kappa) / 128.0;
+                let r = r2 as f64 / 65_536.0;
+                let exact = if kappa >= 0 {
+                    1.0 + k * r
+                } else {
+                    1.0 / (1.0 - k * r)
+                } * 65_536.0;
+                let got = warp_factor(r2, kappa) as f64;
+                assert!(
+                    (got - exact).abs() <= 1.0,
+                    "κ {kappa} r2 {r2}: {got} vs {exact}"
+                );
+            }
+        }
+        assert_eq!(warp_factor(1 << 16, -64), 43_690);
+        assert_eq!(warp_factor(1 << 16, 64), 98_304);
+        assert_eq!(warp_factor(WARP_R2_MAX, -128), 21_845);
+        assert_eq!(warp_factor(WARP_R2_MAX, 127), 195_584);
+    }
+
+    /// Under expansion a point is covered by a block of side ⌈1 + 3κr²⌉, the radial derivative
+    /// of the map, at most 8; without expansion the block is one pixel (REQ-L2-06).
+    #[test]
+    fn curvature_block_law() {
+        for kappa in [-128i8, -1, 0] {
+            assert_eq!(warp_block(WARP_R2_MAX, kappa), 1);
+        }
+        assert_eq!(warp_block(0, 64), 1);
+        assert_eq!(warp_block(1, 1), 2, "any expansion off the center");
+        assert_eq!(warp_block(WARP_R2_MAX, 64), 4, "1 + 3·0.5·2");
+        assert_eq!(warp_block(WARP_R2_MAX, 127), 7);
+        assert_eq!(warp_block(i64::MAX, 127), 7);
+        for kappa in 1i8..=127 {
+            for r2 in (0..=WARP_R2_MAX).step_by(4099) {
+                let derivative = 1.0 + 3.0 * (f64::from(kappa) / 128.0) * (r2 as f64 / 65_536.0);
+                assert_eq!(
+                    warp_block(r2, kappa),
+                    (derivative.ceil() as i64).min(8),
+                    "κ {kappa} r2 {r2}"
+                );
+            }
+        }
     }
 
     /// The strata velocities are φ⁻¹..φ⁻⁴ within one unit of Q16.16 (REQ-L2-07).

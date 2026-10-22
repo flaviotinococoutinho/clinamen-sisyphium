@@ -441,7 +441,7 @@ pub fn render_cellae(
 const GOLDEN: [(&str, u64); 4] = [
     ("vigilia", 0x6939_00D0_E0E1_CC05),
     ("acedia", 0x9F0B_5319_454B_90FC),
-    ("somnium", 0x156B_FE74_674C_1B17),
+    ("somnium", 0x4C94_B04F_2A22_F5DE),
     ("quies", 0xD5C6_687C_FD16_F2B7),
 ];
 
