@@ -76,9 +76,9 @@ tabela.
 
 ## 6. Figura
 
-- Altura S·φ⁻³: o esqueleto é dado em unidades de h/24, levadas a pixels por round(k·h/24); a cabeça é um
-  bloco liso de lado max(1, round(4·h/24)) que começa na unidade 23 (rosto de 4×4 px sem traços com
-  h = 24, a 320×180); a expressão vem da postura, da cadência e da luz.
+- Altura S·φ⁻³: o esqueleto é dado em unidades de h/24, levadas a pixels por round(k·h/24); a
+  cabeça é um bloco liso de lado max(1, round(4·h/24)) que começa na unidade 23 (rosto de 4×4 px
+  sem traços com h = 24, a 320×180); a expressão vem da postura, da cadência e da luz.
 - Silhueta legível em todos os stili em menos de 1 s: a figura e a rocha têm contraste mínimo de 8
   tons com o fundo.
 - Posturas: ereta, curvada, ajoelhada, contemplativa, adormecida, voltada ao observador.
