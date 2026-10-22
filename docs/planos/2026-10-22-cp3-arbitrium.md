@@ -28,7 +28,7 @@ reescreve o documento afetado para que ele descreva o estado presente.
 | # | Decisão | Razão | Custo se errada |
 | --- | --- | --- | --- |
 | D1 | `Mundus::step(&mut self, &Facultates, &Indicia) -> Nuntius` e `Mundus::advance(&mut self, &Facultates, &Indicia, ticks: u32, tick_ms: u32) -> Nuntius`; sem `&Regimen` | fase circadiana e noturno (REQ-L1-04, L4-09, L4-10) exigem `tz_offset_min` e `australis`; nenhuma lei de estado lê a forma | assinatura do ABI no checkpoint 4 |
-| D2 | Ordem do tick: gerador; fecho; interrupção; oclusão; lasca; toque; modus; curvatura; passo; leis contínuas; evento; porta rara | determinismo exige uma ordem; o fecho antes do passo deixa o cume visível por um tick | reordenação e novos quadros-ouro |
+| D2 | Ordem do tick: gerador; fecho; interrupção; oclusão; lasca; toque; modus; passo; leis contínuas; evento; curvatura (limitada a ±64); porta rara | determinismo exige uma ordem; o fecho antes do passo deixa o cume visível por um tick; a curvatura depois do evento mantém o domínio operacional mesmo com a visita de Heráclito (+8) | reordenação e novos quadros-ouro |
 | D3 | Somnium sem estímulo persiste (cláusula ausente em REQ-L4-10) | sem ela o sonho termina no tick seguinte sem agnitio | uma linha da lei do modus |
 | D4 | O daemon usa a porta das demais personae: `ramus` = 3 ∧ (`semen` ∧ 0x1FF) = 0 | sem porta, a persona se repete a cada fim de evento e soma `onus` +16 a cada 240 ticks | frequência do daemon |
 | D5 | Eventos especiais (`eventus` 8..=15) terminam em `gradus` ≥ 240: `eventus` = (`semen` ≫ 8) ∧ 7, `ramus` = 3, `gradus` = 0 | a especificação não diz qual clinamen sucede uma persona, agnitio ou metalepse | sucessão de eventos |
