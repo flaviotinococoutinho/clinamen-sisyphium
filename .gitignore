@@ -1,0 +1,15 @@
+# Artefatos de construção
+/target/
+**/target/
+/out/
+*.ppm
+*.png
+!docs/**/*.png
+
+# Sistema e editores
+.DS_Store
+*.swp
+.idea/
+.vscode/
+.direnv/
+.envrc
