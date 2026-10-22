@@ -21,5 +21,6 @@ extern crate std;
 
 mod campi;
 pub mod memoria;
+pub mod natura;
 pub mod spatium;
 pub mod verbum;
