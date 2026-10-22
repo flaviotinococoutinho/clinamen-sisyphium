@@ -15,12 +15,30 @@
     clippy::arithmetic_side_effects,
     clippy::missing_docs_in_private_items
 )]
+// Tests may panic, index, count and compare freely: they are the verification, not the law.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::float_arithmetic,
+        clippy::float_cmp,
+        clippy::cast_precision_loss,
+        clippy::needless_range_loop,
+        clippy::manual_range_contains,
+        clippy::naive_bytecount
+    )
+)]
 
 #[cfg(test)]
 extern crate std;
 
 mod campi;
 pub mod concentus;
+pub mod corpus;
 pub mod ephemeris;
 pub mod hospes;
 pub mod memoria;

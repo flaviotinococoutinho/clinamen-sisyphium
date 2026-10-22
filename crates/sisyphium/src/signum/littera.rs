@@ -145,15 +145,23 @@ pub const fn width(glyphs: u32, s: u16) -> u32 {
     glyphs.saturating_mul(6).saturating_mul(s as u32)
 }
 
-/// Draws one block of `s`×`s` pixels at cell-relative column and row.
-fn block(pictor: &mut Pictor, x: i32, y: i32, s: u16, col: i32, row: i32, lum: u8, stratum: u8) {
-    let s = i32::from(s.max(1));
-    let px = x.wrapping_add(col.wrapping_mul(s));
-    let py = y.wrapping_add(row.wrapping_mul(s));
+/// Draws one block of `scale`×`scale` pixels at a cell-relative column and row.
+fn block(
+    pictor: &mut Pictor,
+    origin: (i32, i32),
+    scale: u16,
+    col: i32,
+    row: i32,
+    lum: u8,
+    stratum: u8,
+) {
+    let scale = i32::from(scale.max(1));
+    let px = origin.0.wrapping_add(col.wrapping_mul(scale));
+    let py = origin.1.wrapping_add(row.wrapping_mul(scale));
     let mut dy = 0;
-    while dy < s {
+    while dy < scale {
         let mut dx = 0;
-        while dx < s {
+        while dx < scale {
             pictor.plot(
                 px.wrapping_add(dx),
                 py.wrapping_add(dy),
@@ -168,57 +176,64 @@ fn block(pictor: &mut Pictor, x: i32, y: i32, s: u16, col: i32, row: i32, lum: u
     }
 }
 
-/// Draws `rows` rows of five bits (leftmost column in bit 4 of each row) starting at `row0`.
+/// Draws `count` rows of five bits (leftmost column in bit 4 of each row) from `first_row`.
 #[allow(clippy::too_many_arguments)]
-fn rows(
+fn draw_rows(
     pictor: &mut Pictor,
-    x: i32,
-    y: i32,
-    s: u16,
+    origin: (i32, i32),
+    scale: u16,
     bits: u64,
-    rows: u32,
-    row0: i32,
+    count: u32,
+    first_row: i32,
     lum: u8,
     stratum: u8,
 ) {
-    let mut r = 0u32;
-    while r < rows {
-        let line = (bits >> r.wrapping_mul(5)) & 0x1F;
-        let mut c = 0u32;
-        while c < 5 {
-            if (line >> (4u32.wrapping_sub(c))) & 1 == 1 {
+    let mut row = 0u32;
+    while row < count {
+        let line = (bits >> row.wrapping_mul(5)) & 0x1F;
+        let mut col = 0u32;
+        while col < 5 {
+            if (line >> (4u32.wrapping_sub(col))) & 1 == 1 {
                 block(
                     pictor,
-                    x,
-                    y,
-                    s,
-                    c as i32,
-                    row0.wrapping_add(r as i32),
+                    origin,
+                    scale,
+                    col as i32,
+                    first_row.wrapping_add(row as i32),
                     lum,
                     stratum,
                 );
             }
-            c = c.wrapping_add(1);
+            col = col.wrapping_add(1);
         }
-        r = r.wrapping_add(1);
+        row = row.wrapping_add(1);
     }
 }
 
-/// Draws `text` in cells of 6×10·`s` pixels from `(x, y)`: diacritics in rows 0..=1, the glyph
-/// in rows 2..=8, the cedilla in row 9. Unknown characters draw `·` and keep the alignment.
-pub fn text(pictor: &mut Pictor, x: i32, y: i32, s: u16, text: &str, lum: u8, stratum: u8) {
-    let pitch = i32::from(s.max(1)).wrapping_mul(6);
+/// Draws `text` in cells of 6×10·`scale` pixels from `(x, y)`: diacritics in rows 0..=1, the
+/// glyph in rows 2..=8, the cedilla in row 9. Unknown characters draw `·` and keep the alignment.
+pub fn text(pictor: &mut Pictor, x: i32, y: i32, scale: u16, text: &str, lum: u8, stratum: u8) {
+    let pitch = i32::from(scale.max(1)).wrapping_mul(6);
     for (k, c) in (0i32..).zip(text.chars()) {
-        let cx = x.wrapping_add(k.wrapping_mul(pitch));
+        let origin = (x.wrapping_add(k.wrapping_mul(pitch)), y);
         let (bits, mark) = glyph(c);
-        rows(pictor, cx, y, s, bits, 7, 2, lum, stratum);
+        draw_rows(pictor, origin, scale, bits, 7, 2, lum, stratum);
         match mark {
             Marca::Nulla => {}
-            Marca::Acute => rows(pictor, cx, y, s, u64::from(ACUTE), 2, 0, lum, stratum),
-            Marca::Grave => rows(pictor, cx, y, s, u64::from(GRAVE), 2, 0, lum, stratum),
-            Marca::Circ => rows(pictor, cx, y, s, u64::from(CIRC), 2, 0, lum, stratum),
-            Marca::Tilde => rows(pictor, cx, y, s, u64::from(TILDE), 2, 0, lum, stratum),
-            Marca::Cedilla => rows(pictor, cx, y, s, u64::from(CEDILLA), 1, 9, lum, stratum),
+            Marca::Acute => draw_rows(pictor, origin, scale, u64::from(ACUTE), 2, 0, lum, stratum),
+            Marca::Grave => draw_rows(pictor, origin, scale, u64::from(GRAVE), 2, 0, lum, stratum),
+            Marca::Circ => draw_rows(pictor, origin, scale, u64::from(CIRC), 2, 0, lum, stratum),
+            Marca::Tilde => draw_rows(pictor, origin, scale, u64::from(TILDE), 2, 0, lum, stratum),
+            Marca::Cedilla => draw_rows(
+                pictor,
+                origin,
+                scale,
+                u64::from(CEDILLA),
+                1,
+                9,
+                lum,
+                stratum,
+            ),
         }
     }
 }
