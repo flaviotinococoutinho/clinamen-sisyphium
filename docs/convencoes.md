@@ -48,7 +48,7 @@
 - Tipos: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`.
 - Escopos: `verbum`, `memoria`, `natura`, `ephemeris`, `consilium`, `spatium`, `corpus`,
   `arbitrium`, `concentus`, `signum`, `sensus`, `transumptio`, `hospes`, `mundus`, `tabula`, `textus`, `limen`,
-  `tela`, `hosts`, `docs`, `release`.
+  `tela`, `hosts`, `docs`, `spec`, `release`.
 - Corpo opcional em português, estilo frio: o que mudou e a evidência.
 - Sem trailers de coautoria, de ferramentas ou de sessões.
 - Um commit por mudança coerente. Os commits de um PR contam a cadeia de implementação em ordem.
