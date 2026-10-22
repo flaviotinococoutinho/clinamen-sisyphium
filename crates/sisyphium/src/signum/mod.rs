@@ -2,6 +2,9 @@
 //! projection and the cyclic dominance, the chalk font, the sky, the slope, the organic frame,
 //! the scene composer and the four stili.
 
+pub mod caelum;
 pub mod littera;
+pub mod margo;
+pub mod mons;
 pub mod pixel;
 pub mod raster;

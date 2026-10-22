@@ -88,6 +88,12 @@ impl Fx {
     pub const fn neg(self) -> Self {
         Self(self.0.saturating_neg())
     }
+
+    /// Saturating absolute value.
+    #[must_use]
+    pub const fn abs(self) -> Self {
+        Self(self.0.saturating_abs())
+    }
 }
 
 /// φ = (1 + √5)/2.
