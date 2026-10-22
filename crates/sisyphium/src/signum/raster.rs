@@ -4,7 +4,7 @@
 
 use crate::hospes::Tabula;
 use crate::signum::pixel::{lum_of, pixel, stratum_of};
-use crate::spatium::{dominates, isqrt, warp};
+use crate::spatium::{WARP_R2_MAX, dominates, isqrt, warp_block, warp_factor, warp_scale};
 
 /// The 4×4 ordered-dither matrix, four bits per threshold, index `((y & 3) << 2) | (x & 3)`
 /// (Bayer, 1973; REQ-L5-03).
@@ -70,7 +70,9 @@ impl<'t, 'p> Pictor<'t, 'p> {
         Self::new(tab, 0)
     }
 
-    /// The farthest logical coordinate that can still project inside the frame.
+    /// The farthest logical coordinate that can still project inside the frame: the strongest
+    /// contraction of REQ-L2-06 is `warp_factor(WARP_R2_MAX, −128)` = 21 845/65 536 > 1/8, so no
+    /// point beyond ±(8·half + 256) lands in the frame.
     fn reach(&self) -> i32 {
         self.half.saturating_mul(8).saturating_add(256)
     }
@@ -81,44 +83,54 @@ impl<'t, 'p> Pictor<'t, 'p> {
         v.clamp(r.wrapping_neg(), r)
     }
 
-    /// Projects a logical coordinate through the curvature (REQ-L2-06).
-    fn project(&self, x: i32, y: i32) -> (i32, i32) {
+    /// Projects a logical coordinate through the curvature (REQ-L2-06): the squared radius
+    /// normalized to the half of the larger dimension, r2 = (dx² + dy²)·65 536/half² in Q16.16
+    /// (saturating), gives the factor of [`warp_factor`], which scales the displacement in pixels
+    /// with full precision ([`warp_scale`]). Returns the projected point and the side of the
+    /// block that covers it ([`warp_block`]).
+    fn project(&self, x: i32, y: i32) -> (i64, i64, i64) {
         if self.kappa == 0 {
-            return (x, y);
+            return (i64::from(x), i64::from(y), 1);
         }
-        let nx = x
-            .wrapping_sub(self.cx)
-            .wrapping_shl(8)
-            .checked_div(self.half)
-            .unwrap_or(0);
-        let ny = y
-            .wrapping_sub(self.cy)
-            .wrapping_shl(8)
-            .checked_div(self.half)
-            .unwrap_or(0);
-        let (wx, wy) = warp(
-            nx.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16,
-            ny.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16,
-            self.kappa,
-        );
+        let (cx, cy) = (i64::from(self.cx), i64::from(self.cy));
+        let dx = i64::from(x).wrapping_sub(cx);
+        let dy = i64::from(y).wrapping_sub(cy);
+        let half = i64::from(self.half);
+        let r2 = dx
+            .saturating_mul(dx)
+            .saturating_add(dy.saturating_mul(dy))
+            .saturating_mul(65_536)
+            .checked_div(half.wrapping_mul(half))
+            .unwrap_or(WARP_R2_MAX);
+        let factor = warp_factor(r2, self.kappa);
         (
-            self.cx
-                .wrapping_add(i32::from(wx).wrapping_mul(self.half).wrapping_shr(8)),
-            self.cy
-                .wrapping_add(i32::from(wy).wrapping_mul(self.half).wrapping_shr(8)),
+            cx.wrapping_add(warp_scale(dx, factor)),
+            cy.wrapping_add(warp_scale(dy, factor)),
+            warp_block(r2, self.kappa),
         )
     }
 
-    /// Writes one pixel at a logical position.
+    /// Writes one logical pixel: the block of REQ-L2-06 whose top-left corner is the projected
+    /// point (one pixel unless the curvature expands), clipped to the frame.
     pub fn plot(&mut self, x: i32, y: i32, lum: u8, stratum: u8, label: u8, modo: Modo) {
-        let (px, py) = self.project(x, y);
-        let (w, h) = (i32::from(self.tab.width), i32::from(self.tab.height));
-        if px < 0 || py < 0 || px >= w || py >= h {
-            return;
+        let (px, py, side) = self.project(x, y);
+        let (w, h) = (i64::from(self.tab.width), i64::from(self.tab.height));
+        let (right, bottom) = (
+            px.saturating_add(side).min(w),
+            py.saturating_add(side).min(h),
+        );
+        for row in py.max(0)..bottom {
+            for column in px.max(0)..right {
+                self.put(column, row, lum, stratum, label, modo);
+            }
         }
-        let index = (py as usize)
-            .wrapping_mul(w as usize)
-            .wrapping_add(px as usize);
+    }
+
+    /// Writes one frame pixel at `(x, y)`, inside the frame, under `modo`.
+    fn put(&mut self, x: i64, y: i64, lum: u8, stratum: u8, label: u8, modo: Modo) {
+        let index = (y as usize)
+            .wrapping_mul(usize::from(self.tab.width))
+            .wrapping_add(x as usize);
         let Some(slot) = self.tab.pixels.get_mut(index) else {
             return;
         };
@@ -408,6 +420,41 @@ mod tests {
                 buf[area..].iter().all(|&b| b == 0xA5),
                 "overflow at frame {w}×{hh}"
             );
+        }
+    }
+
+    /// A filled square of side H/2 at the center stays a solid area under curvature: inside the
+    /// bounding box of the lit pixels at least 95 % are lit, at three resolutions and under
+    /// contraction and expansion (REQ-L2-06).
+    #[test]
+    fn curvature_density() {
+        for (w, h) in [(320u16, 180u16), (640, 360), (1920, 1080)] {
+            for kappa in [-64i8, -1, 1, 64] {
+                let (wu, hu) = (usize::from(w), usize::from(h));
+                let mut buf = std::vec![VOID; wu * hu];
+                let mut tab = Tabula::new(w, h, &mut buf).unwrap();
+                let mut pictor = Pictor::new(&mut tab, kappa);
+                let side = i32::from(h) / 2;
+                let (x0, y0) = (i32::from(w) / 2 - side / 2, i32::from(h) / 2 - side / 2);
+                pictor.fill(x0, y0, side, side, 15, 0, false);
+                let (mut left, mut right, mut top, mut bottom) = (wu, 0, hu, 0);
+                let mut lit = 0usize;
+                for (i, &p) in buf.iter().enumerate() {
+                    if lum_of(p) == 15 {
+                        let (x, y) = (i % wu, i / wu);
+                        left = left.min(x);
+                        right = right.max(x);
+                        top = top.min(y);
+                        bottom = bottom.max(y);
+                        lit += 1;
+                    }
+                }
+                let area = (right - left + 1) * (bottom - top + 1);
+                assert!(
+                    lit * 100 >= area * 95,
+                    "{w}×{h} κ {kappa}: {lit} of {area} lit in the bounding box"
+                );
+            }
         }
     }
 

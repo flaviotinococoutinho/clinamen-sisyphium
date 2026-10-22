@@ -219,7 +219,10 @@ pub fn draw_figure(pictor: &mut Pictor, figura: &Figura, lum: u8, stratum: u8) -
 }
 
 /// Draws the boulder: a disc of diameter `d` whose interior reads the 8×8 `texture` in blocks
-/// of `scale` pixels (bit set → `lum_on`, clear → `lum_off`) and whose rim is `lum_edge`.
+/// of `scale` pixels (bit set → `lum_on`, clear → `lum_off`) and whose rim is `lum_edge`. The
+/// rim is drawn after the interior, so that it stays the outline where a contraction lands
+/// several logical pixels on one frame pixel (REQ-L2-06); without curvature every logical pixel
+/// has its own frame pixel and the order does not change the frame.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_boulder(
     pictor: &mut Pictor,
@@ -236,35 +239,41 @@ pub fn draw_boulder(
     let r2 = (radius as u32).saturating_mul(radius as u32);
     let inner = radius.wrapping_sub(1).max(0) as u32;
     let inner2 = inner.saturating_mul(inner);
-    let mut dy = radius.wrapping_neg();
-    while dy <= radius {
-        let dy2 = (dy as i64).wrapping_mul(dy as i64) as u32;
-        let span = isqrt(r2.saturating_sub(dy2)) as i32;
-        let mut dx = span.wrapping_neg();
-        while dx <= span {
-            let dist2 = dy2.saturating_add((dx as i64).wrapping_mul(dx as i64) as u32);
-            let lum = if dist2 > inner2 {
-                lum_edge
-            } else {
-                let col = (dx.wrapping_add(radius).checked_div(scale).unwrap_or(0) & 7) as u32;
-                let row = (dy.wrapping_add(radius).checked_div(scale).unwrap_or(0) & 7) as u32;
-                if (texture >> (row.wrapping_mul(8).wrapping_add(col))) & 1 == 1 {
-                    lum_on
-                } else {
-                    lum_off
+    for rim in [false, true] {
+        let mut dy = radius.wrapping_neg();
+        while dy <= radius {
+            let dy2 = (dy as i64).wrapping_mul(dy as i64) as u32;
+            let span = isqrt(r2.saturating_sub(dy2)) as i32;
+            let mut dx = span.wrapping_neg();
+            while dx <= span {
+                let dist2 = dy2.saturating_add((dx as i64).wrapping_mul(dx as i64) as u32);
+                if (dist2 > inner2) == rim {
+                    let lum = if rim {
+                        lum_edge
+                    } else {
+                        let col =
+                            (dx.wrapping_add(radius).checked_div(scale).unwrap_or(0) & 7) as u32;
+                        let row =
+                            (dy.wrapping_add(radius).checked_div(scale).unwrap_or(0) & 7) as u32;
+                        if (texture >> (row.wrapping_mul(8).wrapping_add(col))) & 1 == 1 {
+                            lum_on
+                        } else {
+                            lum_off
+                        }
+                    };
+                    pictor.plot(
+                        center.0.wrapping_add(dx),
+                        center.1.wrapping_add(dy),
+                        lum,
+                        0,
+                        LABEL_NONE,
+                        Modo::Super,
+                    );
                 }
-            };
-            pictor.plot(
-                center.0.wrapping_add(dx),
-                center.1.wrapping_add(dy),
-                lum,
-                0,
-                LABEL_NONE,
-                Modo::Super,
-            );
-            dx = dx.wrapping_add(1);
+                dx = dx.wrapping_add(1);
+            }
+            dy = dy.wrapping_add(1);
         }
-        dy = dy.wrapping_add(1);
     }
 }
 
@@ -447,6 +456,43 @@ mod tests {
                     }
                 }
                 assert_eq!(hs, 4, "head is 4×4 at scale 1");
+            }
+        }
+    }
+
+    /// Under a contraction several logical pixels land on one frame pixel; the rim stays the
+    /// outline of the boulder: at least nine in ten drawn pixels next to an undrawn one carry the
+    /// rim tone, at five places of the frame (REQ-L2-06, REQ-L3-03).
+    #[test]
+    fn boulder_rim_survives_contraction() {
+        for kappa in [-64i8, -48, -32, -16, 0] {
+            for center in [(50, 14), (14, 50), (50, 50), (14, 14), (32, 10)] {
+                let mut buf = [VOID; 64 * 64];
+                let mut tab = Tabula::new(64, 64, &mut buf).unwrap();
+                let mut pictor = Pictor::new(&mut tab, kappa);
+                draw_boulder(&mut pictor, center, 15, 2, 0x00FF_00FF_00FF_00FF, 12, 4, 15);
+                let drawn = |x: i32, y: i32| {
+                    (0..64).contains(&x)
+                        && (0..64).contains(&y)
+                        && buf[(x + y * 64) as usize] != VOID
+                };
+                let (mut outline, mut rim) = (0, 0);
+                for y in 0..64 {
+                    for x in 0..64 {
+                        let open = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                            .iter()
+                            .any(|&(ex, ey)| !drawn(x + ex, y + ey));
+                        if drawn(x, y) && open {
+                            outline += 1;
+                            rim += usize::from(lum_of(buf[(x + y * 64) as usize]) == 15);
+                        }
+                    }
+                }
+                assert!(outline >= 20, "κ {kappa} at {center:?}: outline {outline}");
+                assert!(
+                    rim * 10 >= outline * 9,
+                    "κ {kappa} at {center:?}: rim {rim} of {outline}"
+                );
             }
         }
     }
