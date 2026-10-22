@@ -25,13 +25,14 @@ lei do mundo que a figura sofre.
 
 ## 3. Regras de escrita do corpus
 
-- Maiúsculas; sem pronomes; sem adjetivos de juízo; substantivos concretos; presente do
+- Maiúsculas; sem pronomes pessoais (inclusive os oblíquos átonos), possessivos, interrogativos
+  ou indefinidos de pessoa; sem adjetivos de juízo; substantivos concretos; presente do
   indicativo; nenhuma explicação; nenhum nome de produto, marca ou pessoa viva.
 - Linha com no máximo 40 glifos (a região das crônicas comporta 48 a 320 px de largura lógica).
   O corpus nasce no projeto, no checkpoint 3, sob estas regras; nenhum texto externo é
   reutilizado.
-- Cada crônica percorre a escada de registros sem saltar degraus; um degrau PODE ocupar duas
-  linhas consecutivas; o quinto degrau é opcional (4..=6 linhas no total):
+- Cada crônica percorre a escada de registros sem saltar degraus: tem cinco linhas, uma por
+  degrau, e o registro de uma linha é o degrau da sua posição (linha i no degrau i + 1):
 
 | Degrau | Registro | Escala | Exemplo de conteúdo |
 | --- | --- | --- | --- |
@@ -39,7 +40,7 @@ lei do mundo que a figura sofre.
 | 2 | vivo | minutos; um animal, uma planta, um artesão | a coruja voa; o pescador volta |
 | 3 | civil | dias a anos; uma cidade, um ofício, um portão | o portão fecha; a caravana dispersa |
 | 4 | epocal | séculos; uma civilização, uma linhagem | uma cidade não é fundada |
-| 5 | abstrato (opcional) | ideias; o que a humanidade deixa de saber ou passa a saber | o infinito espera doze séculos |
+| 5 | abstrato | ideias; o que a humanidade deixa de saber ou passa a saber | o infinito espera doze séculos |
 
 - A última linha afirma a consequência maior como fato, sem advérbio.
 - Cada ramus de um clinamen conduz a uma civilização e época diferentes; os oito clinamina
@@ -56,7 +57,7 @@ lei do mundo que a figura sofre.
 | `eventus` | Nome | Faixa de `ascensus` | Micro-incidente | Rami (Δonus, Δconatus, Δtranquillitas) |
 | --- | --- | --- | --- | --- |
 | 0 | Folium | 8..=40 | uma folha seca no caminho | chutar (+12, 0, −2); pisar (+6, −4, 0); contornar (0, −2, +2) |
-| 1 | Calculus | 90..=115 | um seixo entra na sandália | suportar (+5, −8, +4); retirar (−30 durante 3 min, 0, 0); esmagar (+45, −10, −6) |
+| 1 | Calculus | 90..=115 | um seixo entra na sandália | suportar (+5, −8, +4); retirar (−30, 0, 0); esmagar (+45, −10, −6) |
 | 2 | Umbra | 48..=72 | a sombra de uma ave cruza a rocha | erguer os olhos (0, +2, +2); ignorar (+4, 0, 0); recuar (+8, −6, −4) |
 | 3 | Sudor | 120..=150 | uma gota de suor cai na pedra | enxugar (0, −1, 0); deixar cair (+2, 0, +1); provar (−4, +4, −2) |
 | 4 | Rima | 160..=190 | um degrau de rocha rachado | testar (0, −3, +1); desviar (+3, −1, 0); bater o pé (+20, −8, −3) |
@@ -64,12 +65,18 @@ lei do mundo que a figura sofre.
 | 6 | Echo | 200..=230 | o eco da rocha volta do vale | responder (+2, +6, −1); calar (0, 0, +3); escutar (−8, +2, +4) |
 | 7 | Ventus | 60..=100 | uma rajada contra a subida | inclinar-se (+1, −6, 0); parar (0, +3, +2); virar o rosto (+6, −2, −4) |
 
-Civilizações e épocas das consequências (uma por ramus, sem repetição no mesmo clinamen): Atenas
-(séc. V a.C.), Troia (séc. XII a.C.), Persépolis (séc. V a.C.), Chang'an (séc. VIII), Pataliputra
-(séc. III a.C.), Tenochtitlan (séc. XV), Timbuktu (séc. XIV), Cuzco (séc. XV), Córdoba (séc. X),
-Edo (séc. XVII), Alexandria (séc. III a.C.), Uruk (séc. XXX a.C.), Cartago (séc. III a.C.),
-Kyoto (séc. XII), Roma (séc. I), Bagdá (séc. IX), Benin (séc. XVI), Rapa Nui (séc. XIII),
-Nálanda (séc. VII), Constantinopla (séc. VI), Axum (séc. IV), Teotihuacan (séc. IV).
+Civilizações e épocas das consequências: uma por ramus, 24 no total, sem repetição.
+
+| `eventus` | Ramus 0 | Ramus 1 | Ramus 2 |
+| --- | --- | --- | --- |
+| 0 | Atenas (séc. V a.C.) | Chang'an (séc. VIII) | Tenochtitlan (séc. XV) |
+| 1 | Troia (séc. XII a.C.) | Persépolis (séc. V a.C.) | Crotona (séc. VI a.C.) |
+| 2 | Pataliputra (séc. III a.C.) | Benin (séc. XVI) | Timbuktu (séc. XIV) |
+| 3 | Cuzco (séc. XV) | Alexandria (séc. III a.C.) | Edo (séc. XVII) |
+| 4 | Uruk (séc. XXX a.C.) | Cartago (séc. III a.C.) | Kyoto (séc. XII) |
+| 5 | Nálanda (séc. VII) | Axum (séc. IV) | Rapa Nui (séc. XIII) |
+| 6 | Constantinopla (séc. VI) | Bagdá (séc. IX) | Teotihuacan (séc. IV) |
+| 7 | Córdoba (séc. X) | Tonga (séc. XIII) | Angkor (séc. XII) |
 
 ## 5. Personae
 
@@ -100,6 +107,28 @@ inversão de agência, e o modus passa a AmorFati até o fecho do ciclo.
 ## 8. Corpus
 
 O corpus completo vive no código (`arbitrium::annales_en`, `arbitrium::annales_pt`) como tabelas
-constantes, única fonte. Cada entrada: `eventus`, `ramus`, índice da linha, registro, texto. A
-verificação `annales_lines_within_width` confere o limite de 40 glifos e a presença de todos os
-registros na ordem.
+constantes, única fonte. Os dois módulos têm as mesmas seis tabelas:
+
+| Tabela | Forma | Conteúdo |
+| --- | --- | --- |
+| `ANNALES` | `[[[&str; 5]; 3]; 8]` | cinco linhas por ramus, indexadas por `eventus`, `ramus` e linha |
+| `APHORISMI` | `[&str; 8]` | um aforismo por clinamen |
+| `PERSONAE` | `[&str; 3]` | a linha de Diógenes, a de Heráclito e a do daemon |
+| `AGNITIO` | `[&str; 2]` | as duas linhas da agnitio |
+| `METALEPSIS` | `&str` | a linha da metalepse |
+| `INTERRUPTIO` | `[&str; 4]` | as quatro linhas da interrupção |
+
+O registro de uma linha de clinamen é a posição dela: a linha i está no degrau i + 1 da escada
+de §3. As demais tabelas fixam o registro por linha: metalepse, abstrato; agnitio, íntimo e
+abstrato; personae, vivo, abstrato e epocal; interrupção, epocal, epocal, civil e civil.
+
+A linha i de uma crônica fica visível quando `gradus` atinge o deslocamento i. Os deslocamentos
+são 24, 72, 144, 240, 360 e 480 ticks (REQ-L4-04); as crônicas têm cinco linhas e usam os cinco
+primeiros. O aforismo do clinamen fica visível com a primeira linha. A metalepse e cada persona
+mostram a linha no primeiro deslocamento; a agnitio mostra a primeira linha no primeiro e a
+segunda no segundo. A interrupção acrescenta ao fim do texto a linha `INTERRUPTIO[k]`, com
+k = hash(`clausurae`, `eventus`) mod 4 (REQ-L4-08): epocal para k 0 e 1, civil para k 2 e 3.
+
+Verificações: `annales_lines_within_width` confere o limite de 40 glifos, a cobertura da fonte e
+as maiúsculas; `annales_impersonal`, a ausência de pronomes; `aphorism_format`, a forma dos
+aforismos; `annales_reveal_offsets`, os deslocamentos de visibilidade.
