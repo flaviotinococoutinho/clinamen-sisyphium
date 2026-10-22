@@ -531,7 +531,7 @@ pub fn render_cellae(
             }
         }
     }
-    if recognized(mundus) {
+    if recognized(mundus) && rows > 0 {
         let digits = hex16(mundus.verbum.bits());
         for (k, digit) in digits.iter().enumerate() {
             let column = (cols as i64).wrapping_sub(16).wrapping_add(k as i64);
@@ -873,6 +873,23 @@ mod tests {
         );
         assert!(!done);
         assert!(cells.iter().all(|&c| c == 0xBEEF), "nothing written");
+        world.memoria = world.memoria.with_gradus(100);
+        let mut empty = [0u8; 0];
+        let mut tab = Tabula::new(cols, 0, &mut empty).unwrap();
+        let mut grid = Cellae::new(cols, 0, &mut cells).unwrap();
+        assert!(render_cellae(
+            &world,
+            &facultates,
+            &indicia,
+            &regimen,
+            &LINES,
+            &mut tab,
+            &mut grid,
+        ));
+        assert!(
+            cells.iter().all(|&c| c == 0xBEEF),
+            "a grid without rows has no first row"
+        );
     }
 
     /// Every chronicle line keeps at least 40 glyphs (`docs/07-narrativa.md` §3): line i of the
