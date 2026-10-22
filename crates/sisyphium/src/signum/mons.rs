@@ -3,7 +3,7 @@
 
 use crate::natura::rule30;
 use crate::signum::pixel::LABEL_NONE;
-use crate::signum::raster::{Modo, Pictor};
+use crate::signum::raster::{Modo, Pictor, bayer};
 use crate::spatium::{Compositio, STRATA, scatter32};
 
 /// The ring after `generations` steps of rule 30 (at most 255).
@@ -99,17 +99,25 @@ pub fn draw_slope(
                 .wrapping_sub(lift)
                 .wrapping_sub(relief);
             if top < base_y {
-                pictor.line(x, top, x, base_y, lum, class, 1, Modo::Super);
-                if !dither {
-                    pictor.plot(
-                        x,
-                        top,
-                        lum.saturating_add(3).min(15),
-                        class,
-                        LABEL_NONE,
-                        Modo::Super,
-                    );
+                if dither {
+                    let mut y = top;
+                    while y <= base_y {
+                        if bayer(x as u32, y as u32, lum) {
+                            pictor.plot(x, y, lum, class, LABEL_NONE, Modo::Super);
+                        }
+                        y = y.wrapping_add(1);
+                    }
+                } else {
+                    pictor.line(x, top, x, base_y, lum, class, 1, Modo::Super);
                 }
+                pictor.plot(
+                    x,
+                    top,
+                    lum.saturating_add(3).min(15),
+                    class,
+                    LABEL_NONE,
+                    Modo::Super,
+                );
             }
             x = x.wrapping_add(1);
         }

@@ -8,3 +8,4 @@ pub mod margo;
 pub mod mons;
 pub mod pixel;
 pub mod raster;
+pub mod scaena;
