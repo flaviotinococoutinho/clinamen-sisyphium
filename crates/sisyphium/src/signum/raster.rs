@@ -255,7 +255,12 @@ impl<'t, 'p> Pictor<'t, 'p> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing, clippy::unwrap_used)]
+    #![allow(
+        clippy::arithmetic_side_effects,
+        clippy::indexing_slicing,
+        clippy::unwrap_used,
+        clippy::naive_bytecount
+    )]
     use super::*;
     use crate::hospes::Tabula;
     use crate::natura::mix;
