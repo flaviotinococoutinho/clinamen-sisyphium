@@ -686,7 +686,18 @@ mod tests {
     #[test]
     #[ignore = "measurement; run in release on request"]
     fn metire_frames() {
-        let scenarios = golden_scenarios();
+        let mut scenarios: Vec<(&str, Mundus, Indicia, Regimen)> =
+            golden_scenarios().into_iter().collect();
+        let (name, m, i, r) = scenarios[0];
+        scenarios.push((
+            name,
+            m,
+            i,
+            Regimen {
+                stilus: Stilus::Littera,
+                ..r
+            },
+        ));
         for (name, m, i, r) in &scenarios {
             for (w, h, n) in [(320u16, 180u16, 1000u32), (1920, 1080, 100)] {
                 let f = Facultates {
