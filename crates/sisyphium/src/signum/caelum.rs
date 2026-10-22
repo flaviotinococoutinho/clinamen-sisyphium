@@ -67,7 +67,8 @@ pub fn constellation(pictor: &mut Pictor, sky: Rect, automatum: u8, lum: u8, str
 
 /// Draws the moon of radius `r` centered at `(cx, cy)`: nothing at new moon, a full disc at
 /// 128, and in between the disc minus a shadow disc displaced by the illuminated fraction, to
-/// the left while waxing and to the right while waning (REQ-L5-08).
+/// the left while waxing and to the right while waning (REQ-L5-08). Only the rows and columns
+/// that can reach the frame are visited.
 pub fn moon(pictor: &mut Pictor, cx: i32, cy: i32, r: i32, luna: u8, lum: u8) {
     if luna == 0 {
         return;
@@ -86,29 +87,20 @@ pub fn moon(pictor: &mut Pictor, cx: i32, cy: i32, r: i32, luna: u8, lum: u8) {
         offset
     };
     let r2 = (r as u32).saturating_mul(r as u32);
-    let mut dy = r.wrapping_neg();
-    while dy <= r {
-        let dy2 = (dy as i64).wrapping_mul(dy as i64) as u32;
-        let span = isqrt(r2.saturating_sub(dy2)) as i32;
-        let mut dx = span.wrapping_neg();
-        while dx <= span {
-            let sx = dx.wrapping_sub(shadow_x);
-            let shadow2 = (sx as i64)
-                .wrapping_mul(sx as i64)
-                .wrapping_add((dy as i64).wrapping_mul(dy as i64));
+    let (cx, cy, radius) = (i64::from(cx), i64::from(cy), i64::from(r));
+    let (top, bottom) = pictor.clip_rows(cy.wrapping_sub(radius), cy.wrapping_add(radius));
+    for y in top..=bottom {
+        let dy = y.wrapping_sub(cy);
+        let dy2 = dy.wrapping_mul(dy) as u32;
+        let span = i64::from(isqrt(r2.saturating_sub(dy2)));
+        let (left, right) = pictor.clip_columns(cx.wrapping_sub(span), cx.wrapping_add(span));
+        for x in left..=right {
+            let sx = x.wrapping_sub(cx).wrapping_sub(i64::from(shadow_x));
+            let shadow2 = sx.wrapping_mul(sx).wrapping_add(dy.wrapping_mul(dy));
             if shadow2 > i64::from(r2) {
-                pictor.plot(
-                    cx.wrapping_add(dx),
-                    cy.wrapping_add(dy),
-                    lum,
-                    2,
-                    LABEL_NONE,
-                    Modo::Super,
-                );
+                pictor.plot(x as i32, y as i32, lum, 2, LABEL_NONE, Modo::Super);
             }
-            dx = dx.wrapping_add(1);
         }
-        dy = dy.wrapping_add(1);
     }
 }
 

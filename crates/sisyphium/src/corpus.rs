@@ -222,7 +222,8 @@ pub fn draw_figure(pictor: &mut Pictor, figura: &Figura, lum: u8, stratum: u8) -
 /// of `scale` pixels (bit set → `lum_on`, clear → `lum_off`) and whose rim is `lum_edge`. The
 /// rim is drawn after the interior, so that it stays the outline where a contraction lands
 /// several logical pixels on one frame pixel (REQ-L2-06); without curvature every logical pixel
-/// has its own frame pixel and the order does not change the frame.
+/// has its own frame pixel and the order does not change the frame. Each pass visits only the
+/// rows and columns that can reach the frame.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_boulder(
     pictor: &mut Pictor,
@@ -234,19 +235,22 @@ pub fn draw_boulder(
     lum_off: u8,
     lum_edge: u8,
 ) {
-    let radius = i32::from(d).wrapping_shr(1).max(1);
-    let scale = i32::from(scale.max(1));
+    let radius = i64::from(i32::from(d).wrapping_shr(1).max(1));
+    let scale = i64::from(scale.max(1));
     let r2 = (radius as u32).saturating_mul(radius as u32);
     let inner = radius.wrapping_sub(1).max(0) as u32;
     let inner2 = inner.saturating_mul(inner);
+    let (cx, cy) = (i64::from(center.0), i64::from(center.1));
     for rim in [false, true] {
-        let mut dy = radius.wrapping_neg();
-        while dy <= radius {
-            let dy2 = (dy as i64).wrapping_mul(dy as i64) as u32;
-            let span = isqrt(r2.saturating_sub(dy2)) as i32;
-            let mut dx = span.wrapping_neg();
-            while dx <= span {
-                let dist2 = dy2.saturating_add((dx as i64).wrapping_mul(dx as i64) as u32);
+        let (top, bottom) = pictor.clip_rows(cy.wrapping_sub(radius), cy.wrapping_add(radius));
+        for y in top..=bottom {
+            let dy = y.wrapping_sub(cy);
+            let dy2 = dy.wrapping_mul(dy) as u32;
+            let span = i64::from(isqrt(r2.saturating_sub(dy2)));
+            let (left, right) = pictor.clip_columns(cx.wrapping_sub(span), cx.wrapping_add(span));
+            for x in left..=right {
+                let dx = x.wrapping_sub(cx);
+                let dist2 = dy2.saturating_add(dx.wrapping_mul(dx) as u32);
                 if (dist2 > inner2) == rim {
                     let lum = if rim {
                         lum_edge
@@ -261,18 +265,9 @@ pub fn draw_boulder(
                             lum_off
                         }
                     };
-                    pictor.plot(
-                        center.0.wrapping_add(dx),
-                        center.1.wrapping_add(dy),
-                        lum,
-                        0,
-                        LABEL_NONE,
-                        Modo::Super,
-                    );
+                    pictor.plot(x as i32, y as i32, lum, 0, LABEL_NONE, Modo::Super);
                 }
-                dx = dx.wrapping_add(1);
             }
-            dy = dy.wrapping_add(1);
         }
     }
 }
