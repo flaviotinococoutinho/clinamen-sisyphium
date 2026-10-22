@@ -83,7 +83,7 @@ Termos definidos. Grafia única. O nome no código é o termo em latim.
 | Nuntius | `Nuntius` | Conjunto de bits devolvido por `step` que anuncia marcos: fecho, clinamen, persona, agnitio, metalepse, evento raro, lasca | — |
 | Lingua | `Lingua` | Língua do texto da experiência: inglês ou português | `convencoes.md` §1 |
 | Hospes | `hospes` | Hospedeiro: programa que mede o meio, chama o núcleo e exibe a tabula | — |
-| Tick | — | Uma chamada de `step` | — |
+| Tick | — | Uma chamada de `step`, que aplica as leis na ordem de `04-arquitetura.md` §7.1 | — |
 | Festum | `festum` | Dia astronômico: solstício, equinócio, lua nova, lua cheia | — |
 | Sismo | `seism` | Agitação externa 0..=255: acelerômetro, entropia de interação, carga | — |
 | Automatismo | `automatism` | Grau 0..=255 de regularidade mecânica da interação, medido pelo hospedeiro | Kahneman, 2011 |

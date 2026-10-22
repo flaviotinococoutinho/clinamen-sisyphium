@@ -52,7 +52,8 @@ termos aparecem.
 
 Máquina de referência: computador de mesa com processador ARM64 de 2020 ou posterior; modelo e
 versão do sistema registrados no PR. Protocolo: 1000 quadros por stilus a 320×180 e 100 quadros a 1920×1080, mediana e p95 em
-microssegundos; tamanho do binário `sisyphium-tabula` em bytes após `strip`; tamanho de
+microssegundos; tamanho do binário `sisyphium-tabula` em bytes após `strip`; tempo de
+`advance` com 65 536 ticks, mediana de 11 execuções em microssegundos (`metire_advance`); tamanho de
 `Mundus` em bytes (16); número de linhas do corpus e comprimento máximo.
 
 ## 7. Cenários dos quadros-ouro
