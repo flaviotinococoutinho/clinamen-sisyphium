@@ -5,7 +5,6 @@
 use crate::ephemeris::ephemeris;
 use crate::hospes::{Facultates, Indicia, Lingua, Regimen};
 use crate::mundus::Mundus;
-use crate::natura::pink;
 use crate::verbum::Modus;
 
 /// Family of the palette.
@@ -47,7 +46,8 @@ pub struct Concentus {
     pub contrastus: u8,
     /// Line weight in units of the integer scale: 1 serene, 2 agitated.
     pub linea: u8,
-    /// Gait cadence in steps per minute; 0 when the world is still.
+    /// Base cadence of the gait in steps per minute (REQ-L3-01): 64, 48 below 48 of effort, 0
+    /// when the world ticks once a second or slower.
     pub cadentia: u8,
     /// Register of the visible text.
     pub registrum: Registrum,
@@ -99,16 +99,10 @@ pub fn concentus(
     let linea = if v.tranquillitas() < 32 { 2 } else { 1 };
     let cadentia = if regimen.tick_ms >= 1000 {
         0
+    } else if v.conatus() < 48 {
+        48
     } else {
-        let t32 = indicia.epoch_ms.wrapping_mul(32).div_euclid(1000) as u64;
-        let breath = i32::from(pink(t32)).wrapping_sub(128).wrapping_mul(8) / 128;
-        let base = 64i32.wrapping_add(breath);
-        let paced = if v.conatus() < 48 {
-            base.wrapping_mul(3) / 4
-        } else {
-            base
-        };
-        paced.clamp(0, 255) as u8
+        64
     };
     let registrum = match m.eventus() {
         12 | 14 => Registrum::Abstractum,
@@ -206,6 +200,7 @@ mod tests {
     /// Noon of the 2026 June solstice at −03:00.
     const NOON: i64 = 1_782_054_000_000;
 
+    /// A world of genesis(7) with the given burden, serenity and mode.
     fn world(onus: u8, tranquillitas: u8, modus: Modus) -> Mundus {
         let mut m = Mundus::genesis(7);
         m.verbum = m
@@ -345,7 +340,7 @@ mod tests {
         );
     }
 
-    /// Thick lines under agitation, thin lines in serenity (REQ-L5-05); cadence near 64 (REQ-L3-01).
+    /// Thick lines under agitation, thin lines in serenity (REQ-L5-05).
     #[test]
     fn linea_by_tranquillitas() {
         let f = Facultates::default();
@@ -362,26 +357,33 @@ mod tests {
             concentus(&world(32, 32, Modus::Vigilia), &f, &i, &r).linea,
             1
         );
-        let mut lo = u8::MAX;
-        let mut hi = 0u8;
+    }
+
+    /// The base cadence of the gait: 64 steps per minute, 48 below 48 of effort, 0 when the world
+    /// ticks once a second or slower; constant in time (REQ-L3-01).
+    #[test]
+    fn cadentia_base() {
+        let f = Facultates::default();
+        let r = Regimen::default();
+        let at = |m: &Mundus, epoch_ms: i64, regimen: &Regimen| {
+            let i = Indicia {
+                epoch_ms,
+                ..Indicia::default()
+            };
+            concentus(m, &f, &i, regimen).cadentia
+        };
+        let vigil = world(32, 40, Modus::Vigilia);
+        let mut tired = vigil;
+        tired.verbum = tired.verbum.with_conatus(47);
+        let still = Regimen { tick_ms: 1000, ..r };
         for k in 0..512i64 {
-            let c = concentus(
-                &world(32, 40, Modus::Vigilia),
-                &f,
-                &Indicia {
-                    epoch_ms: NOON + k * 125,
-                    ..i
-                },
-                &r,
-            );
-            lo = lo.min(c.cadentia);
-            hi = hi.max(c.cadentia);
+            let t = NOON + k * 125;
+            assert_eq!(at(&vigil, t, &r), 64);
+            assert_eq!(at(&tired, t, &r), 48);
+            assert_eq!(at(&vigil, t, &still), 0);
         }
-        assert!(
-            (56..=64).contains(&lo) && (64..=72).contains(&hi),
-            "cadence range {lo}..={hi}"
-        );
-        assert!(hi > lo, "cadence must breathe");
+        tired.verbum = tired.verbum.with_conatus(48);
+        assert_eq!(at(&tired, NOON, &r), 64);
     }
 
     /// The text register follows the age of the event (until the chronicle exists).
