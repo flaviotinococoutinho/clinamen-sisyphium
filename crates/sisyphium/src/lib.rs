@@ -51,4 +51,5 @@ pub mod natura;
 pub mod sensus;
 pub mod signum;
 pub mod spatium;
+pub mod transumptio;
 pub mod verbum;

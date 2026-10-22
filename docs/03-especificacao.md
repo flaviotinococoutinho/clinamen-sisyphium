@@ -104,9 +104,9 @@ nome do teste. Versão 0.1 salvo indicação.
 
 | ID | Requisito | Módulo | Verificação |
 | --- | --- | --- | --- |
-| REQ-L7-01 | A cada toque (x, y) o quadrante q = ((y ≫ 7) ≪ 1) \| (x ≫ 7) DEVE atualizar a linha `quadrans` do `oraculum`: a célula q recebe min(peso + 1, 3); as demais células da linha recebem max(peso − 1, 0) quando a soma da linha excede 6; `quadrans` = q. | `transumptio` | U `oracle_update` |
-| REQ-L7-02 | A armadilha DEVE estar pronta quando, na linha `quadrans`, o peso máximo = 3 e a soma ≤ 5; a cena mostra o ensō no centro do quadrante previsto. | `transumptio`, `signum` | U `trap_ready_condition` |
-| REQ-L7-03 | Se a armadilha está pronta e o toque seguinte cai no quadrante previsto, `modus` = AmorFati, `eventus` = 11, `ramus` = 0, `gradus` = 0 e a linha do oráculo volta a `0x55`. | `transumptio` | U `metalepsis_fires` |
+| REQ-L7-01 | A cada toque (x, y) o quadrante q = ((y ≫ 7) ≪ 1) \| (x ≫ 7) DEVE atualizar a linha `quadrans` do `oraculum`: a célula q recebe min(peso + 1, 3); as demais células da linha recebem max(peso − 1, 0) quando a soma da linha, com a célula q já elevada, excede 6; `quadrans` = q. | `transumptio` | U `oracle_update`; U `oracle_update_matches_reference` |
+| REQ-L7-02 | A armadilha DEVE estar pronta quando, na linha `quadrans`, o peso máximo = 3 e a soma ≤ 5; a cena mostra o ensō no centro do quadrante previsto. | `transumptio`, `signum` | U `trap_ready_condition`; U `trap_matches_reference` |
+| REQ-L7-03 | Fora de Somnium, se a armadilha está pronta e o toque seguinte cai no quadrante previsto, `modus` = AmorFati, `eventus` = 11, `ramus` = 0, `gradus` = 0, a linha `quadrans` do oráculo, a do toque anterior, volta a `0x55` em lugar da atualização de REQ-L7-01 e o passo anuncia `Nuntius::METALEPSIS`. Em Somnium não há metalepse: o toque desperta o mundo (REQ-L4-10, REQ-L4-11) e atualiza o oráculo (REQ-L7-01). Em todos os casos `quadrans` passa a ser o quadrante do toque. | `transumptio` | U `metalepsis_fires`; U `touch_confined_to_its_fields` |
 | REQ-L7-04 | A amostragem da rocha em contemplação DEVE devolver bit macro = bit(8v + u) do `Verbum` e bit micro = bit(8v' + u') de rotl(`Verbum`, 13) ⊕ `0x9E37_79B9_7F4A_7C15`, com (u', v') = ((u·z) ≫ 4, (v·z) ≫ 4) ∧ 7. | `transumptio` | U `abyme_sampling` |
 
 ## L8 — Memória
