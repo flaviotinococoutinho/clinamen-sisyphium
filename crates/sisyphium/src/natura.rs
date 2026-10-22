@@ -1,6 +1,6 @@
 //! `natura`: nature (level L1). The Galois generator that paces every uncertain time and place,
-//! the rule-30 ring that shapes slope and wind, stateless 1/f noise, the logistic and Hénon maps,
-//! and the mixing function behind every dispersion of a key.
+//! the rule-30 ring that shapes slope and wind, stateless 1/f noise, the logistic map with its
+//! parameter, the Hénon map, and the mixing function behind every dispersion of a key.
 
 use crate::spatium::{Fx, KNUTH64};
 use crate::verbum::SEMEN_DEFAULT;
@@ -68,6 +68,31 @@ pub const R_INF: Fx = Fx(0x391E8);
 #[must_use]
 pub const fn logistic(x: Fx, r: Fx) -> Fx {
     r.mul(x).mul(Fx::ONE.sub(x))
+}
+
+/// The base of the parameter r of the logistic map: 2.5 in Q16.16, 2.5·2¹⁶ exactly (REQ-L1-04).
+const LOGISTIC_R_BASE: i32 = 0x28000;
+
+/// The increment of r by the night and by an hour of idleness: 0.6 in Q16.16, 0.6·2¹⁶ = 39 321.6
+/// rounded to the nearest, 39 322 (REQ-L1-04).
+const LOGISTIC_R_STEP: u32 = 0x999A;
+
+/// The idleness, in seconds, at which its increment of r stops growing: one hour (REQ-L1-04).
+const LOGISTIC_IDLE_SPAN: u32 = 3600;
+
+/// The parameter of the logistic map, r = 2.5 + 0.6·night + 0.6·min(idle/3600 s, 1) in Q16.16
+/// (REQ-L1-04): a still world at night reaches r∞ ([`R_INF`]) after 2 820 s of idleness. The
+/// idle term is an integer quotient, so it floors between its exact ends.
+#[must_use]
+pub const fn logistic_r(nocturnal: bool, idle_s: u32) -> Fx {
+    let idle = if idle_s > LOGISTIC_IDLE_SPAN {
+        LOGISTIC_IDLE_SPAN
+    } else {
+        idle_s
+    };
+    let night = LOGISTIC_R_STEP.wrapping_mul(nocturnal as u32);
+    let still = idle.wrapping_mul(LOGISTIC_R_STEP) / LOGISTIC_IDLE_SPAN;
+    Fx(LOGISTIC_R_BASE.saturating_add(night.wrapping_add(still) as i32))
 }
 
 /// Hénon's a = 1.4 in Q16.16.
@@ -173,6 +198,30 @@ mod tests {
         assert_eq!(logistic(Fx::ONE, Fx::from_int(4)), Fx::ZERO);
         let x = logistic(Fx::from_ratio(1, 4), Fx::from_int(2));
         assert_eq!(x, Fx::from_ratio(3, 8));
+    }
+
+    /// r = 2.5 + 0.6·night + 0.6·min(idle/3600 s, 1) in Q16.16: the constants are 2.5·2¹⁶ and
+    /// 0.6·2¹⁶ rounded to the nearest; the idle term is exact at its ends, floors in between and
+    /// saturates after one hour; r never decreases with idleness and never reaches r∞ by day
+    /// (REQ-L1-04).
+    #[test]
+    fn logistic_r_parameter() {
+        assert_eq!(LOGISTIC_R_BASE, 5 * 65_536 / 2);
+        assert_eq!(i64::from(LOGISTIC_R_STEP), (6 * 65_536 + 5) / 10);
+        assert_eq!(LOGISTIC_IDLE_SPAN, 3600);
+        for night in [false, true] {
+            let mut last = Fx::ZERO;
+            for idle in (0..=3700u32).chain([u32::MAX]) {
+                let still = 0x999A * i64::from(idle.min(3600)) / 3600;
+                let expected = 0x28000 + i64::from(night) * 0x999A + still;
+                let r = logistic_r(night, idle);
+                assert_eq!(i64::from(r.0), expected, "night {night} idle {idle}");
+                assert!(r >= last, "night {night} idle {idle}");
+                last = r;
+            }
+        }
+        assert!(logistic_r(false, u32::MAX).0 < R_INF.0);
+        assert_eq!(logistic_r(true, 1800), Fx(0x28000 + 0x999A + 0x4CCD));
     }
 
     /// The Hénon attractor stays inside |x| ≤ 1.5, |y| ≤ 0.5 for 4 096 iterations (REQ-L1-05).
