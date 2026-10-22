@@ -25,7 +25,7 @@ macro_rules! campi {
                     $crate::campi::campus(self.0, $shift, $width) as $t
                 }
 
-                #[doc = concat!("Returns the word with the field read by `", stringify!($get), "` replaced.")]
+                #[doc = concat!("Returns the word with the field read by `", stringify!($get), "` replaced by `value` masked to the field width.")]
                 #[must_use]
                 pub const fn $with(self, value: $t) -> Self {
                     Self::new($crate::campi::cum_campo(self.0, $shift, $width, value as u64))
