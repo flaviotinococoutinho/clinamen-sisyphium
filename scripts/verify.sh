@@ -1,5 +1,6 @@
 #!/bin/sh
-# Runs every verification step of docs/08-verificacao.md §3 in order and stops at the first failure.
+# Runs the verification steps of docs/08-verificacao.md §3 that exist at this checkpoint, in order,
+# and stops at the first failure.
 set -eu
 cd "$(dirname "$0")/.."
 cargo fmt --all --check
