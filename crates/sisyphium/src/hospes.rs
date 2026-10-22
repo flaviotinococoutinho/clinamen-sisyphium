@@ -218,9 +218,11 @@ impl Nuntius {
     }
 }
 
-/// A raster output surface owned by the host: one byte per pixel, row-major (REQ-H-02). The
-/// fields are public by contract, so the length guard of `new` is advisory: every write of the
-/// core goes through checked access and never trusts `width · height ≤ pixels.len()`.
+/// A raster output surface owned by the host: one byte per pixel, row-major (REQ-H-02). The core
+/// reads and writes only the prefix of `width · height` bytes and leaves the rest of the slice
+/// untouched. The fields are public by contract, so the length guard of `new` is advisory: every
+/// write of the core goes through checked access and never trusts
+/// `width · height ≤ pixels.len()`.
 #[derive(Debug)]
 pub struct Tabula<'a> {
     /// Width in pixels.
@@ -245,7 +247,8 @@ impl<'a> Tabula<'a> {
 }
 
 /// A glyph-cell output surface owned by the host: bits 0..=7 glyph, 8..=11 tone, 12..=13
-/// stratum per cell, row-major (REQ-H-02). As with [`Tabula`], every write uses checked access.
+/// stratum per cell, row-major (REQ-H-02). The core reads and writes only the prefix of
+/// `cols · rows` cells; as with [`Tabula`], every write uses checked access.
 #[derive(Debug)]
 pub struct Cellae<'a> {
     /// Columns.

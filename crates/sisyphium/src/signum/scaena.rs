@@ -31,6 +31,14 @@ const RAMP: [u8; 10] = [36, 37, 39, 43, 45, 44, 53, 54, 55, 56];
 /// Index of `·` in [`ORDO`].
 const DOT: u8 = 57;
 
+/// The first `width`·`height` items of a surface (REQ-H-02): the core reads and writes nothing
+/// beyond them; a shorter slice is taken whole.
+fn prefix<T>(items: &mut [T], width: u16, height: u16) -> &mut [T] {
+    let area = usize::from(width).saturating_mul(usize::from(height));
+    let end = area.min(items.len());
+    items.get_mut(..end).unwrap_or_default()
+}
+
 /// The point of the slope at `t` (0 at the foot, 255 at the summit).
 fn slope_point(comp: &Compositio, t: u8) -> (i32, i32) {
     let (foot, summit) = comp.slope;
@@ -219,7 +227,7 @@ fn compose(
 ) {
     let comp = compositio(tab.width, tab.height, regimen.lines);
     let verbum = mundus.verbum;
-    tab.pixels.fill(VOID);
+    prefix(tab.pixels, tab.width, tab.height).fill(VOID);
     let mut pictor = Pictor::new(tab, chord.curvatura);
     compose_sky(
         &mut pictor,
@@ -261,10 +269,11 @@ fn compose(
 
 /// Two tones: the slate (luminance ≤ 1) is 0, the marks of the figure and of the text
 /// (luminance ≥ 13) are 15, and everything between is thresholded by the ordered dither;
-/// classes and labels are kept.
+/// classes and labels are kept. Only the frame's prefix is read and written.
 fn bicolor(tab: &mut Tabula) {
     let width = usize::from(tab.width).max(1);
-    for (y, row) in tab.pixels.chunks_mut(width).enumerate() {
+    let frame = prefix(tab.pixels, tab.width, tab.height);
+    for (y, row) in frame.chunks_mut(width).enumerate() {
         for (x, p) in row.iter_mut().enumerate() {
             let lum = lum_of(*p);
             let two = if lum <= 1 {
@@ -396,7 +405,8 @@ pub fn render(
 
 /// Renders one frame as glyph cells: the scene drawn in `scratch` (which must have the grid's
 /// dimensions) becomes ramp glyphs, and the chronicle lines occupy the last rows as letters.
-/// Bits 0..=7 glyph, 8..=11 tone, 12..=13 stratum (REQ-H-02).
+/// Bits 0..=7 glyph, 8..=11 tone, 12..=13 stratum; only the prefixes of cols·rows cells and
+/// pixels are read and written (REQ-H-02).
 pub fn render_cellae(
     mundus: &Mundus,
     facultates: &Facultates,
@@ -415,7 +425,11 @@ pub fn render_cellae(
         ..*regimen
     };
     compose(mundus, &chord, indicia, &quiet, &[], scratch);
-    for (cell, &p) in cells.cells.iter_mut().zip(scratch.pixels.iter()) {
+    let raster = prefix(scratch.pixels, scratch.width, scratch.height);
+    for (cell, &p) in prefix(cells.cells, cells.cols, cells.rows)
+        .iter_mut()
+        .zip(raster.iter())
+    {
         let lum = lum_of(p);
         let glyph = *RAMP
             .get(usize::from(lum).wrapping_mul(10) / 16)
@@ -456,6 +470,7 @@ mod tests {
 
     /// Noon of the 2026 June solstice at −03:00.
     const NOON: i64 = 1_782_054_000_000;
+    /// Four chronicle lines for the frames of the tests.
     const LINES: [&str; 4] = [
         "THE LEAF CRACKS UNDER THE SANDAL.",
         "AN OWL LEAVES THE OLIVE TREE.",
@@ -463,6 +478,7 @@ mod tests {
         "THE LIBRARY BURNS. ROME WAITS.",
     ];
 
+    /// A frame of genesis(1) at noon in `stilus` and `modus` (curvature −48 in Somnium).
     fn frame(width: u16, height: u16, stilus: Stilus, modus: Modus, energy: u8) -> Vec<u8> {
         let mut world = Mundus::genesis(1);
         let kappa = if modus == Modus::Somnium { -48 } else { 0 };
@@ -592,66 +608,207 @@ mod tests {
         );
     }
 
-    /// Lines longer than the plinth are cut at the cell boundary, never wrapped or shifted.
+    /// Lines longer than the grid are cut at the last column and the lines beyond the last row are
+    /// left out: with fewer columns than glyphs and fewer rows than lines, each row of the grid is
+    /// the exact prefix of its line, in order, and nothing else appears (REQ-L5-03).
     #[test]
     fn littera_truncates_lines() {
-        let long = ["ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJ"];
-        let m = Mundus::genesis(1);
-        let f = Facultates::default();
-        let i = Indicia {
+        let lines = [
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+            "THE LEAF CRACKS UNDER THE SANDAL.",
+            "AN OWL LEAVES THE OLIVE TREE.",
+            "A LAMP FALLS IN ATHENS.",
+        ];
+        let (cols, rows) = (20u16, 3u16);
+        let world = Mundus::genesis(1);
+        let facultates = Facultates {
+            width: cols,
+            height: rows,
+            cells: true,
+            ..Facultates::default()
+        };
+        let indicia = Indicia {
             epoch_ms: NOON,
             ..Indicia::default()
         };
-        let r = Regimen::default();
-        let mut buf = [0u8; 320 * 180];
-        let mut tab = Tabula::new(320, 180, &mut buf).unwrap();
-        render(&m, &f, &i, &r, &long, &mut tab);
-        let comp = crate::spatium::compositio(320, 180, 6);
-        let right = usize::from(comp.annales.x + comp.annales.w);
-        let row = usize::from(comp.annales.y) + 5;
-        assert!(
-            (right..320).all(|x| lum_of(buf[x + row * 320]) != 13),
-            "nothing beyond the right margin"
+        let regimen = Regimen {
+            stilus: Stilus::Littera,
+            ..Regimen::default()
+        };
+        let mut scratch = [0u8; 20 * 3];
+        let mut cells = [0u16; 20 * 3];
+        let mut tab = Tabula::new(cols, rows, &mut scratch).unwrap();
+        let mut grid = Cellae::new(cols, rows, &mut cells).unwrap();
+        render_cellae(
+            &world,
+            &facultates,
+            &indicia,
+            &regimen,
+            &lines,
+            &mut tab,
+            &mut grid,
         );
-        assert!(
-            (0..usize::from(comp.annales.x)).all(|x| lum_of(buf[x + row * 320]) != 13),
-            "nothing before the left margin"
-        );
+        for (row, line) in lines.iter().take(usize::from(rows)).enumerate() {
+            let expected: Vec<u16> = line
+                .chars()
+                .take(usize::from(cols))
+                .map(|c| {
+                    let glyph = ORDO.chars().position(|o| o == c).unwrap() as u16;
+                    glyph | (u16::from(LUM_TEXT) << 8)
+                })
+                .collect();
+            assert_eq!(
+                expected.len(),
+                usize::from(cols),
+                "every line is longer than the grid"
+            );
+            let start = row * usize::from(cols);
+            assert_eq!(
+                &cells[start..start + usize::from(cols)],
+                &expected[..],
+                "row {row}"
+            );
+        }
     }
 
-    /// Extreme curvature keeps every drawn pixel inside the frame and the frame non-empty.
+    /// Extreme curvature at wide desktop frames keeps every write in the prefix of
+    /// width·height pixels and the frame non-empty (REQ-L2-06, REQ-H-02).
     #[test]
     fn warp_keeps_inside_frame() {
-        for kappa in [-64i8, 64, -128, 127] {
-            let mut m = Mundus::genesis(3);
-            m.verbum = m
-                .verbum
-                .with_modus(Modus::Somnium)
-                .with_curvatura(kappa)
-                .with_ascensus(120);
-            let f = Facultates {
-                width: 480,
-                height: 270,
-                ..Facultates::default()
-            };
-            let i = Indicia {
-                epoch_ms: NOON + 14 * 3_600_000,
-                energy: 200,
-                idle_s: 3600,
-                ..Indicia::default()
-            };
-            let r = Regimen::default();
-            let mut buf = std::vec![0xA5u8; 480 * 270 + 16];
-            let mut tab = Tabula::new(480, 270, &mut buf[..480 * 270]).unwrap();
-            render(&m, &f, &i, &r, &LINES, &mut tab);
-            assert!(
-                buf[480 * 270..].iter().all(|&b| b == 0xA5),
-                "κ {kappa} wrote past the frame"
-            );
-            assert!(
-                buf[..480 * 270].iter().any(|&p| lum_of(p) >= 12),
-                "κ {kappa} empty frame"
-            );
+        for (width, height) in [(1920u16, 1080u16), (3840, 1080)] {
+            for kappa in [-64i8, 64] {
+                let mut world = Mundus::genesis(3);
+                world.verbum = world
+                    .verbum
+                    .with_modus(Modus::Somnium)
+                    .with_curvatura(kappa)
+                    .with_ascensus(120);
+                let facultates = Facultates {
+                    width,
+                    height,
+                    ..Facultates::default()
+                };
+                let indicia = Indicia {
+                    epoch_ms: NOON + 14 * 3_600_000,
+                    energy: 200,
+                    idle_s: 3600,
+                    ..Indicia::default()
+                };
+                let area = usize::from(width) * usize::from(height);
+                let mut buf = std::vec![0xA5u8; area + 64];
+                let mut tab = Tabula::new(width, height, &mut buf).unwrap();
+                render(
+                    &world,
+                    &facultates,
+                    &indicia,
+                    &Regimen::default(),
+                    &LINES,
+                    &mut tab,
+                );
+                assert!(
+                    buf[area..].iter().all(|&b| b == 0xA5),
+                    "{width}×{height} κ {kappa} wrote past the frame"
+                );
+                assert!(
+                    buf[..area].iter().any(|&p| lum_of(p) >= 12),
+                    "{width}×{height} κ {kappa} empty frame"
+                );
+            }
+        }
+    }
+
+    /// The core writes only the prefix of width·height pixels and of cols·rows cells: renders in
+    /// the four stili and cell renders, over 64 frame sizes from the Galois generator (area at
+    /// most 16 384) and 1×1, 272×60, 65 535×1 and 1×65 535, under curvature −64, 0 and 64, with
+    /// worlds, measurements and regimina dispersed by `mix`, leave 64 sentinels after the frame
+    /// intact and never panic (REQ-H-02).
+    #[test]
+    fn render_never_exceeds_slice() {
+        use crate::memoria::Memoria;
+        use crate::natura::{galois, mix};
+        use crate::verbum::Verbum;
+        let mut sizes: Vec<(u16, u16)> = Vec::new();
+        let mut semen = 0xACE1u16;
+        while sizes.len() < 64 {
+            semen = galois(semen);
+            let w = 1 + (semen & 0xFF);
+            semen = galois(semen);
+            let h = 1 + semen % (16_384 / w);
+            sizes.push((w, h));
+        }
+        sizes.extend([(1, 1), (272, 60), (65_535, 1), (1, 65_535)]);
+        let lines = [
+            "AÇÃO E CORAÇÃO NÃO SÃO PÊSAMES.",
+            "THE LEAF CRACKS UNDER THE SANDAL.",
+            "lower case, emoji 😀 and marks",
+            "A LAMP FALLS IN ATHENS.",
+            "THE LIBRARY BURNS.",
+            "ROME WAITS.",
+            "A SEVENTH LINE",
+        ];
+        let mut key = 0x2545_F491_4F6C_DD1Du64;
+        for (w, h) in sizes {
+            let area = usize::from(w) * usize::from(h);
+            for kappa in [-64i8, 0, 64] {
+                for stilus in [
+                    Stilus::Creta,
+                    Stilus::Musivum,
+                    Stilus::Littera,
+                    Stilus::Bicolor,
+                ] {
+                    key = mix(key);
+                    let world = Mundus {
+                        verbum: Verbum::new(key).with_curvatura(kappa),
+                        memoria: Memoria::new(mix(key ^ 0x5A5A)),
+                    };
+                    let facultates = Facultates {
+                        width: w,
+                        height: h,
+                        ..Facultates::default()
+                    };
+                    let indicia = Indicia {
+                        epoch_ms: (key as i64) >> 20,
+                        energy: (key >> 8) as u8,
+                        leaving: key & 1 == 1,
+                        ..Indicia::default()
+                    };
+                    let regimen = Regimen {
+                        stilus,
+                        strata: 1 + ((key >> 16) & 3) as u8,
+                        layers: (key >> 24) as u8,
+                        lines: ((key >> 32) % 7) as u8,
+                        ..Regimen::default()
+                    };
+                    let mut buf = std::vec![0xA5u8; area + 64];
+                    let mut tab = Tabula::new(w, h, &mut buf).unwrap();
+                    render(&world, &facultates, &indicia, &regimen, &lines, &mut tab);
+                    assert!(
+                        buf[area..].iter().all(|&b| b == 0xA5),
+                        "{w}×{h} κ {kappa} {stilus:?}: pixels past the frame"
+                    );
+                    let mut scratch = std::vec![0xA5u8; area + 64];
+                    let mut cells = std::vec![0xA5A5u16; area + 64];
+                    let mut tab = Tabula::new(w, h, &mut scratch).unwrap();
+                    let mut grid = Cellae::new(w, h, &mut cells).unwrap();
+                    render_cellae(
+                        &world,
+                        &facultates,
+                        &indicia,
+                        &regimen,
+                        &lines,
+                        &mut tab,
+                        &mut grid,
+                    );
+                    assert!(
+                        scratch[area..].iter().all(|&b| b == 0xA5),
+                        "{w}×{h} κ {kappa} {stilus:?}: scratch past the grid"
+                    );
+                    assert!(
+                        cells[area..].iter().all(|&c| c == 0xA5A5),
+                        "{w}×{h} κ {kappa} {stilus:?}: cells past the grid"
+                    );
+                }
+            }
         }
     }
 
