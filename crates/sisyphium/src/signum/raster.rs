@@ -48,6 +48,49 @@ pub struct Pictor<'t, 'p> {
     cy: i32,
     /// Half of the larger dimension: the unit of the normalized coordinates.
     half: i32,
+    /// The inclusive logical rectangle `[left, top, right, bottom]` outside which no point
+    /// reaches the frame ([`fines`]).
+    fines: [i64; 4],
+}
+
+/// Distance from the center beyond which a logical displacement cannot land within `extent`
+/// pixels of the center under a contraction whose factor never falls below `floor` (Q16.16):
+/// round(d·f/65 536) ≤ `extent` requires d·`floor`/65 536 < `extent` + 1/2, that is
+/// d < (2·`extent` + 1)·32 768/`floor`, so ⌊(2·`extent` + 1)·32 768/`floor`⌋ bounds d.
+const fn contracted_reach(extent: i64, floor: i64) -> i64 {
+    extent
+        .wrapping_mul(2)
+        .wrapping_add(1)
+        .wrapping_mul(32_768)
+        .div_euclid(if floor > 0 { floor } else { 1 })
+}
+
+/// The inclusive logical rectangle `[left, top, right, bottom]` outside which no point reaches a
+/// frame of `width`×`height` centered at `(cx, cy)` under `kappa` (REQ-L2-06). Flat: the frame
+/// itself. Contraction: the factor never falls below f = `warp_factor(WARP_R2_MAX, kappa)`, so
+/// a displacement d ≥ 0 projects to at least round(d·f/65 536), and the bound on each side is
+/// [`contracted_reach`] of E, the frame's extent from the center on that side (W − 1 − cx to
+/// the right, cx to the left; likewise in height). Expansion: the factor is at least 1, so a
+/// projected point is never closer to the center than its logical point, and its block reaches
+/// at most 7 pixels right and down (side ≤ 8); only [−7, W − 1] × [−7, H − 1] reaches the frame.
+const fn fines(width: u16, height: u16, cx: i64, cy: i64, kappa: i8) -> [i64; 4] {
+    let (right, bottom) = (
+        (width as i64).wrapping_sub(1),
+        (height as i64).wrapping_sub(1),
+    );
+    if kappa > 0 {
+        [-7, -7, right, bottom]
+    } else if kappa == 0 {
+        [0, 0, right, bottom]
+    } else {
+        let floor = warp_factor(WARP_R2_MAX, kappa);
+        [
+            cx.wrapping_sub(contracted_reach(cx, floor)),
+            cy.wrapping_sub(contracted_reach(cy, floor)),
+            cx.wrapping_add(contracted_reach(right.wrapping_sub(cx), floor)),
+            cy.wrapping_add(contracted_reach(bottom.wrapping_sub(cy), floor)),
+        ]
+    }
 }
 
 impl<'t, 'p> Pictor<'t, 'p> {
@@ -56,12 +99,15 @@ impl<'t, 'p> Pictor<'t, 'p> {
         let w = i32::from(tab.width);
         let h = i32::from(tab.height);
         let half = if w > h { w } else { h }.wrapping_shr(1).max(1);
+        let (cx, cy) = (w.wrapping_shr(1), h.wrapping_shr(1));
+        let fines = fines(tab.width, tab.height, i64::from(cx), i64::from(cy), kappa);
         Self {
             tab,
             kappa,
-            cx: w.wrapping_shr(1),
-            cy: h.wrapping_shr(1),
+            cx,
+            cy,
             half,
+            fines,
         }
     }
 
@@ -81,6 +127,21 @@ impl<'t, 'p> Pictor<'t, 'p> {
     fn clamp(&self, v: i32) -> i32 {
         let r = self.reach();
         v.clamp(r.wrapping_neg(), r)
+    }
+
+    /// The part of the logical rows `from..=to` that can reach the frame (REQ-L2-06): loops over
+    /// areas skip only rows whose points all land outside it.
+    #[must_use]
+    pub fn clip_rows(&self, from: i64, to: i64) -> (i64, i64) {
+        let [_, top, _, bottom] = self.fines;
+        (from.max(top), to.min(bottom))
+    }
+
+    /// The part of the logical columns `from..=to` that can reach the frame (REQ-L2-06).
+    #[must_use]
+    pub fn clip_columns(&self, from: i64, to: i64) -> (i64, i64) {
+        let [left, _, right, _] = self.fines;
+        (from.max(left), to.min(right))
     }
 
     /// Projects a logical coordinate through the curvature (REQ-L2-06): the squared radius
@@ -211,27 +272,27 @@ impl<'t, 'p> Pictor<'t, 'p> {
         }
     }
 
-    /// A filled disc, solid or dithered by the Bayer matrix at luminance `lum`.
+    /// A filled disc, solid or dithered by the Bayer matrix at luminance `lum`, row by row from
+    /// the top and left to right, visiting only the rows and columns that can reach the frame.
     pub fn disc(&mut self, cx: i32, cy: i32, r: i32, lum: u8, stratum: u8, dither: bool) {
         let r = self.clamp(r.abs());
         let r2 = (r as u32).saturating_mul(r as u32);
-        let mut dy = r.wrapping_neg();
-        while dy <= r {
-            let dy2 = (dy as i64).wrapping_mul(dy as i64) as u32;
-            let span = isqrt(r2.saturating_sub(dy2)) as i32;
-            let mut dx = span.wrapping_neg();
-            while dx <= span {
-                let (x, y) = (cx.wrapping_add(dx), cy.wrapping_add(dy));
+        let (cx, cy, radius) = (i64::from(cx), i64::from(cy), i64::from(r));
+        let (top, bottom) = self.clip_rows(cy.wrapping_sub(radius), cy.wrapping_add(radius));
+        for y in top..=bottom {
+            let dy = y.wrapping_sub(cy);
+            let span = i64::from(isqrt(r2.saturating_sub(dy.wrapping_mul(dy) as u32)));
+            let (left, right) = self.clip_columns(cx.wrapping_sub(span), cx.wrapping_add(span));
+            for x in left..=right {
                 if !dither || bayer(x as u32, y as u32, lum) {
-                    self.plot(x, y, lum, stratum, 3, Modo::Super);
+                    self.plot(x as i32, y as i32, lum, stratum, 3, Modo::Super);
                 }
-                dx = dx.wrapping_add(1);
             }
-            dy = dy.wrapping_add(1);
         }
     }
 
-    /// A filled rectangle, solid or dithered by the Bayer matrix at luminance `lum`.
+    /// A filled rectangle, solid or dithered by the Bayer matrix at luminance `lum`, row by row,
+    /// visiting only the rows and columns that can reach the frame.
     #[allow(clippy::too_many_arguments)]
     pub fn fill(&mut self, x: i32, y: i32, w: i32, h: i32, lum: u8, stratum: u8, dither: bool) {
         let (x0, y0) = (self.clamp(x), self.clamp(y));
@@ -239,16 +300,14 @@ impl<'t, 'p> Pictor<'t, 'p> {
             self.clamp(x.saturating_add(w)),
             self.clamp(y.saturating_add(h)),
         );
-        let mut py = y0;
-        while py < y1 {
-            let mut px = x0;
-            while px < x1 {
+        let (top, bottom) = self.clip_rows(i64::from(y0), i64::from(y1).wrapping_sub(1));
+        let (left, right) = self.clip_columns(i64::from(x0), i64::from(x1).wrapping_sub(1));
+        for py in top..=bottom {
+            for px in left..=right {
                 if !dither || bayer(px as u32, py as u32, lum) {
-                    self.plot(px, py, lum, stratum, 3, Modo::Super);
+                    self.plot(px as i32, py as i32, lum, stratum, 3, Modo::Super);
                 }
-                px = px.wrapping_add(1);
             }
-            py = py.wrapping_add(1);
         }
     }
 
@@ -454,6 +513,79 @@ mod tests {
                     lit * 100 >= area * 95,
                     "{w}×{h} κ {kappa}: {lit} of {area} lit in the bounding box"
                 );
+            }
+        }
+    }
+
+    /// No logical point outside the reachable area reaches the frame: for small frames and the
+    /// whole range of curvature, every point whose block touches the frame lies inside `fines`.
+    /// The scanned window reaches 4·half + 16 beyond the frame, past any point that the
+    /// strongest contraction (21 845/65 536 > 1/4) can bring inside (REQ-L2-06).
+    #[test]
+    fn reachable_area_bounds_the_projection() {
+        for (w, h) in [(7u16, 5u16), (16, 9), (1, 9), (9, 1), (33, 17), (64, 64)] {
+            for kappa in [-128i8, -64, -48, -1, 0, 1, 64, 127] {
+                let mut buf = std::vec![VOID; usize::from(w) * usize::from(h)];
+                let mut tab = Tabula::new(w, h, &mut buf).unwrap();
+                let pictor = Pictor::new(&mut tab, kappa);
+                let [left, top, right, bottom] = pictor.fines;
+                let margin = i64::from(pictor.half) * 4 + 16;
+                let (wl, hl) = (i64::from(w), i64::from(h));
+                let mut touching = 0;
+                for y in -margin..hl + margin {
+                    for x in -margin..wl + margin {
+                        let (px, py, side) = pictor.project(x as i32, y as i32);
+                        if px + side > 0 && px < wl && py + side > 0 && py < hl {
+                            touching += 1;
+                            assert!(
+                                (left..=right).contains(&x) && (top..=bottom).contains(&y),
+                                "{w}×{h} κ {kappa}: ({x}, {y}) lands outside {:?}",
+                                pictor.fines
+                            );
+                        }
+                    }
+                }
+                assert!(touching > 0, "{w}×{h} κ {kappa}: nothing reaches the frame");
+            }
+        }
+    }
+
+    /// Bounding the loops to the reachable area changes no pixel: discs and rectangles drawn
+    /// across the borders equal the same shapes plotted point by point, in the same order.
+    #[test]
+    fn bounded_loops_match_every_point() {
+        let (w, h) = (24u16, 16u16);
+        for kappa in [-128i8, -64, 0, 64, 127] {
+            for (cx, cy, r) in [
+                (0, 0, 9),
+                (23, 15, 12),
+                (-10, 8, 14),
+                (12, 30, 20),
+                (12, 8, 40),
+            ] {
+                let mut bounded = [VOID; 24 * 16];
+                let mut tab = Tabula::new(w, h, &mut bounded).unwrap();
+                let mut pictor = Pictor::new(&mut tab, kappa);
+                pictor.disc(cx, cy, r, 9, 1, true);
+                pictor.fill(cx - r, cy - r / 2, r, r, 13, 2, false);
+                let mut every = [VOID; 24 * 16];
+                let mut tab = Tabula::new(w, h, &mut every).unwrap();
+                let mut pictor = Pictor::new(&mut tab, kappa);
+                for dy in -r..=r {
+                    let span = isqrt((r * r - dy * dy) as u32) as i32;
+                    for dx in -span..=span {
+                        let (x, y) = (cx + dx, cy + dy);
+                        if bayer(x as u32, y as u32, 9) {
+                            pictor.plot(x, y, 9, 1, 3, Modo::Super);
+                        }
+                    }
+                }
+                for y in cy - r / 2..cy - r / 2 + r {
+                    for x in cx - r..cx {
+                        pictor.plot(x, y, 13, 2, 3, Modo::Super);
+                    }
+                }
+                assert_eq!(bounded, every, "κ {kappa} disc at ({cx}, {cy}) r {r}");
             }
         }
     }

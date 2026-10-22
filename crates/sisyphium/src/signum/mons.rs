@@ -17,18 +17,85 @@ const fn evolved(automatum: u8, generations: u32) -> u8 {
     cells
 }
 
+/// Blend of the live cells of two consecutive generations at `within` quarters of the way
+/// (0..=3), scaled to 0..=`amplitude`.
+const fn blend(here: u8, next: u8, within: u32, amplitude: u16) -> u16 {
+    let mixed = here
+        .count_ones()
+        .wrapping_mul(4u32.wrapping_sub(within))
+        .wrapping_add(next.count_ones().wrapping_mul(within));
+    (mixed.wrapping_mul(amplitude as u32) >> 5) as u16
+}
+
 /// Relief of the slope at `column`, 0..=`amplitude`: the live cells of the ring evolved one
 /// generation every four columns, interpolated linearly between generations.
 #[must_use]
 pub const fn slope_height(automatum: u8, column: u32, amplitude: u16) -> u16 {
     let generation = column.wrapping_shr(2);
-    let within = column & 3;
-    let here = evolved(automatum, generation).count_ones();
-    let next = evolved(automatum, generation.wrapping_add(1)).count_ones();
-    let blend = here
-        .wrapping_mul(4u32.wrapping_sub(within))
-        .wrapping_add(next.wrapping_mul(within));
-    (blend.wrapping_mul(amplitude as u32) >> 5) as u16
+    blend(
+        evolved(automatum, generation),
+        evolved(automatum, generation.wrapping_add(1)),
+        column & 3,
+        amplitude,
+    )
+}
+
+/// The slope walked column by column: the values of [`slope_height`] for consecutive columns,
+/// with one rule-30 step every four columns instead of up to 255 steps per column. Entering a
+/// generation g, the present ring becomes the former next ring, and the next ring is rule 30 of
+/// it, or the first ring again when g ≡ 255 (mod 256), since the evolution counts generations
+/// modulo 256.
+struct Clivus {
+    /// The ring at generation 0.
+    origo: u8,
+    /// Amplitude of the relief.
+    amplitudo: u16,
+    /// The present column.
+    columna: u32,
+    /// The ring at the generation of the present column.
+    praesens: u8,
+    /// The ring at the next generation.
+    sequens: u8,
+}
+
+impl Clivus {
+    /// The walk of the ring `origo` standing at `columna`.
+    const fn new(origo: u8, columna: u32, amplitudo: u16) -> Self {
+        let generation = columna.wrapping_shr(2);
+        Self {
+            origo,
+            amplitudo,
+            columna,
+            praesens: evolved(origo, generation),
+            sequens: evolved(origo, generation.wrapping_add(1)),
+        }
+    }
+
+    /// The relief at `column`: walks forward from the present column, or starts again when
+    /// `column` lies behind it.
+    fn height(&mut self, column: u32) -> u16 {
+        if column < self.columna {
+            *self = Self::new(self.origo, column, self.amplitudo);
+        }
+        while self.columna < column {
+            self.columna = self.columna.wrapping_add(1);
+            // A multiple of four columns enters the next generation.
+            if self.columna.trailing_zeros() >= 2 {
+                self.praesens = self.sequens;
+                self.sequens = if self.columna.wrapping_shr(2) & 0xFF == 255 {
+                    self.origo
+                } else {
+                    rule30(self.praesens)
+                };
+            }
+        }
+        blend(
+            self.praesens,
+            self.sequens,
+            self.columna & 3,
+            self.amplitudo,
+        )
+    }
 }
 
 /// Vertical position of the slope line at `x`, between its foot and its summit.
@@ -48,8 +115,9 @@ fn slope_y(comp: &Compositio, x: i32) -> i32 {
 }
 
 /// Draws `strata` layers of the mountain, farthest first, each displaced by its parallax
-/// velocity times the launcher offset and relieved by rule 30; the farthest layer is class 1,
-/// the others class 2; luminance rises toward the nearest layer.
+/// velocity times the launcher offset and relieved by rule 30 walked column by column; the
+/// farthest layer is class 1, the others class 2; luminance rises toward the nearest layer.
+/// Dithered columns visit only the rows that can reach the frame.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_slope(
     pictor: &mut Pictor,
@@ -88,24 +156,20 @@ pub fn draw_slope(
             (i32::from(lum_far).wrapping_add(step)).clamp(0, 15) as u8
         };
         let seed = automatum.rotate_left(u32::from(k));
+        let mut clivus = Clivus::new(seed, dx.max(0) as u32, amplitude);
         let mut x = 0i32;
         while x < width {
-            let relief = i32::from(slope_height(
-                seed,
-                x.wrapping_add(dx).max(0) as u32,
-                amplitude,
-            ));
+            let relief = i32::from(clivus.height(x.wrapping_add(dx).max(0) as u32));
             let top = slope_y(comp, x.wrapping_add(dx))
                 .wrapping_sub(lift)
                 .wrapping_sub(relief);
             if top < base_y {
                 if dither {
-                    let mut y = top;
-                    while y <= base_y {
+                    let (from, to) = pictor.clip_rows(i64::from(top), i64::from(base_y));
+                    for y in from..=to {
                         if bayer(x as u32, y as u32, lum) {
-                            pictor.plot(x, y, lum, class, LABEL_NONE, Modo::Super);
+                            pictor.plot(x, y as i32, lum, class, LABEL_NONE, Modo::Super);
                         }
-                        y = y.wrapping_add(1);
                     }
                 } else {
                     pictor.line(x, top, x, base_y, lum, class, 1, Modo::Super);
@@ -199,6 +263,36 @@ mod tests {
             "profile has relief"
         );
         assert_eq!(slope_height(0x10, 5, 0), 0);
+    }
+
+    /// Walking the slope column by column gives `slope_height` at every column: eight automata,
+    /// three amplitudes, three widths and three parallax offsets, across the wrap of the ring
+    /// after 256 generations (1 024 columns).
+    #[test]
+    fn relief_walk_matches_slope_height() {
+        for automatum in [0x00u8, 0x01, 0x10, 0x3C, 0x5A, 0x80, 0xA5, 0xFF] {
+            for amplitude in [0u16, 12, 1000] {
+                for width in [1i32, 272, 1920] {
+                    for offset in [-80i32, 0, 78] {
+                        let mut clivus = Clivus::new(automatum, offset.max(0) as u32, amplitude);
+                        for x in 0..width {
+                            let column = (x + offset).max(0) as u32;
+                            assert_eq!(
+                                clivus.height(column),
+                                slope_height(automatum, column, amplitude),
+                                "automaton {automatum:#04x} amplitude {amplitude} column {column}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        let mut clivus = Clivus::new(0x10, 900, 12);
+        assert_eq!(
+            clivus.height(5),
+            slope_height(0x10, 5, 12),
+            "a step back restarts"
+        );
     }
 
     /// Ruins count the interrupted closed cycles: bits 1..=13, never bit 0 (REQ-L4-08, REQ-L8-01).
