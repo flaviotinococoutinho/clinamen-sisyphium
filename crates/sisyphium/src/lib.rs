@@ -20,6 +20,8 @@
 extern crate std;
 
 mod campi;
+pub mod ephemeris;
+pub mod hospes;
 pub mod memoria;
 pub mod natura;
 pub mod spatium;
