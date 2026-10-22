@@ -71,9 +71,11 @@ mod tests {
     /// and `with_*` followed by the accessor is the identity (REQ-L0-02).
     #[test]
     fn memoria_pack_unpack_identity() {
+        let mut semen = 1u16;
         let mut x: u64 = 0x2545_F491_4F6C_DD1D;
         for _ in 0..65_535u32 {
-            x = x.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1);
+            semen = crate::natura::galois(semen);
+            x = crate::natura::mix(x ^ u64::from(semen));
             let m = Memoria::new(x);
             assert_eq!(m.bits(), x);
             assert_eq!(m.clausurae(), (x & 0x3FFF) as u16);

@@ -8,7 +8,7 @@ pub const SYNODIC_S: i64 = 2_551_443;
 pub const LUNA_EPOCH_S: i64 = 947_182_440;
 
 /// The astronomical state of the world at one instant (REQ-L1-06).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Ephemeris {
     /// Circadian phase, 0 at local midnight, 128 at local noon.
     pub phase: u8,
@@ -25,7 +25,8 @@ pub struct Ephemeris {
 }
 
 /// Day of the year (1..=366) of the day counted from 1970-01-01 in the proleptic Gregorian
-/// calendar, by the civil-from-days conversion on 400-year eras.
+/// calendar, by the integer civil-date conversion on 400-year eras (Fliegel and Van Flandern,
+/// 1968, with the era shifted to March).
 #[must_use]
 pub const fn day_of_year(days: i64) -> u16 {
     let z = days.wrapping_add(719_468);
@@ -145,6 +146,9 @@ mod tests {
         let e = ephemeris(-3_600_000, 60, false);
         assert_eq!((e.day_of_year, e.phase), (1, 0));
         assert!(e.nocturnal);
+        let west = ephemeris(-1, -180, false);
+        assert_eq!((west.phase, west.day_of_year), (223, 365));
+        assert!(west.nocturnal);
         let before = ephemeris(-86_400_000 * 400, 0, false);
         assert!(before.day_of_year >= 1 && before.day_of_year <= 366);
     }

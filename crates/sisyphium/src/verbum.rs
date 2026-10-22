@@ -109,9 +109,11 @@ mod tests {
     /// and `with_*` followed by the accessor is the identity (REQ-L0-01).
     #[test]
     fn verbum_pack_unpack_identity() {
+        let mut semen = 1u16;
         let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
         for _ in 0..65_535u32 {
-            x = x.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1);
+            semen = crate::natura::galois(semen);
+            x = crate::natura::mix(x ^ u64::from(semen));
             let semen = (x & 0xFFFF) as u16;
             let semen = if semen == 0 { SEMEN_DEFAULT } else { semen };
             let v = Verbum::new(x);
