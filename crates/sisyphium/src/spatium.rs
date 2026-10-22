@@ -454,7 +454,8 @@ pub struct Compositio {
 }
 
 /// ⌊`len` · `ratio`⌋ for a pixel length and a ratio in 0..=1, exact for every `u16`.
-const fn part(len: u16, ratio: Fx) -> u16 {
+#[must_use]
+pub const fn part(len: u16, ratio: Fx) -> u16 {
     ((len as u64).wrapping_mul(ratio.0 as u64) >> 16) as u16
 }
 

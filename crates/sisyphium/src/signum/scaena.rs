@@ -10,13 +10,13 @@ use crate::hospes::{
     Stilus, Tabula,
 };
 use crate::mundus::Mundus;
-use crate::signum::caelum::{constellation, hexagram, moon};
-use crate::signum::littera::{ORDO, text};
+use crate::signum::caelum::{constellation, hexagram, moon, sky_region};
+use crate::signum::littera::{ORDO, cell_glyph, text};
 use crate::signum::margo::draw_frame;
 use crate::signum::mons::{draw_ruins, draw_slope};
 use crate::signum::pixel::{VOID, label_of, lum_of, pixel, stratum_of};
 use crate::signum::raster::{Modo, Pictor, bayer};
-use crate::spatium::{Compositio, compositio, isqrt};
+use crate::spatium::{Compositio, Rect, compositio, isqrt};
 
 /// FNV-1a over 64 bits: the hash of a frame for the golden tests.
 #[must_use]
@@ -28,10 +28,16 @@ pub fn fnv1a(bytes: &[u8]) -> u64 {
 
 /// Luminance of the text of the chronicles.
 const LUM_TEXT: u8 = 13;
+/// Luminance of the word in hexadecimal after the recognition (REQ-L8-02).
+const LUM_VERBUM: u8 = 10;
+/// Stratum class of the sky: constellation, hexagram and moon (`docs/04-arquitetura.md` §5).
+const CLASSIS_CAELI: u8 = 2;
+/// Stratum class of the actors: the figure, its shadow and the boulder.
+const CLASSIS_ACTORUM: u8 = 1;
+/// Stratum class of the signs: the frame, the chronicles and the word after the recognition.
+const CLASSIS_SIGNORUM: u8 = 0;
 /// The glyph ramp of the Littera stilus, as indices in [`ORDO`]: ` .:-=+*#%@`.
 const RAMP: [u8; 10] = [36, 37, 39, 43, 45, 44, 53, 54, 55, 56];
-/// Index of `·` in [`ORDO`].
-const DOT: u8 = 57;
 
 /// The first `width`·`height` items of a surface (REQ-H-02): the core reads and writes nothing
 /// beyond them; a shorter slice is taken whole.
@@ -68,12 +74,40 @@ fn along_slope(comp: &Compositio, from: (i32, i32), distance: i32) -> (i32, i32)
     )
 }
 
+/// The step and the room of line `i` of the plinth: line i steps in by
+/// min(3·s·i, 6·s·(glyphs per line − 40)) pixels, or not at all when a line holds 40 glyphs or
+/// fewer, so that every line keeps at least 40 glyphs (`docs/07-narrativa.md` §3); it then holds
+/// ⌊(width of the chronicles − step)/(6·s)⌋ glyphs.
+fn plinth_line(comp: &Compositio, i: u8) -> (i32, usize) {
+    let s = i32::from(comp.s.max(1));
+    let glyphs = i32::from(comp.glyphs_per_line);
+    let indent = if glyphs > 40 {
+        s.wrapping_mul(3)
+            .wrapping_mul(i32::from(i))
+            .min(s.wrapping_mul(6).wrapping_mul(glyphs.wrapping_sub(40)))
+    } else {
+        0
+    };
+    let room = i32::from(comp.annales.w)
+        .wrapping_sub(indent)
+        .checked_div(s.wrapping_mul(6))
+        .unwrap_or(0)
+        .max(0);
+    (indent, room as usize)
+}
+
 /// Cuts `line` to at most `glyphs` characters.
 fn cut(line: &str, glyphs: usize) -> &str {
     match line.char_indices().nth(glyphs) {
         Some((byte, _)) => line.get(..byte).unwrap_or(""),
         None => line,
     }
+}
+
+/// Whether the word of the night shows after the recognition: `eventus` 12 with `gradus` below
+/// 240 (REQ-L8-02).
+fn recognized(mundus: &Mundus) -> bool {
+    mundus.memoria.eventus() == 12 && mundus.memoria.gradus() < 240
 }
 
 /// Uppercase hexadecimal digits of a word, most significant first.
@@ -90,10 +124,12 @@ fn hex16(word: u64) -> [u8; 16] {
     out
 }
 
-/// The sky: constellation, hexagram and moon (REQ-L5-06..08).
+/// The sky in its region (REQ-L5-12): constellation, hexagram and moon (REQ-L5-06..08).
+#[allow(clippy::too_many_arguments)]
 fn compose_sky(
     pictor: &mut Pictor,
     comp: &Compositio,
+    sky: Rect,
     chord: &Concentus,
     indicia: &Indicia,
     regimen: &Regimen,
@@ -102,28 +138,32 @@ fn compose_sky(
 ) {
     let scale = comp.s;
     if regimen.has(CAELUM) {
-        constellation(pictor, comp.sky, automatum, 6, 1);
+        constellation(pictor, sky, automatum, 6, CLASSIS_CAELI);
     }
-    if regimen.has(HEXAGRAMMA) && indicia.energy >= 77 {
-        let hx = i32::from(comp.sky.x)
-            .wrapping_add(i32::from(comp.sky.w))
+    let room = i32::from(scale).wrapping_mul(12);
+    if regimen.has(HEXAGRAMMA)
+        && indicia.energy >= 77
+        && i32::from(sky.w) >= room
+        && i32::from(sky.h) >= room
+    {
+        let hx = i32::from(sky.x)
+            .wrapping_add(i32::from(sky.w))
             .wrapping_sub(i32::from(scale).wrapping_mul(12));
         hexagram(
             pictor,
             hx,
-            i32::from(comp.sky.y),
+            i32::from(sky.y),
             scale,
             tranquillitas,
             8,
-            1,
+            CLASSIS_CAELI,
         );
     }
     if chord.nocturnal {
-        let r = i32::from(comp.sky.h).wrapping_div(3).max(2);
-        let mx = i32::from(comp.sky.x)
-            .wrapping_add(i32::from(comp.sky.w).wrapping_mul(3).wrapping_div(4));
-        let my = i32::from(comp.sky.y).wrapping_add(i32::from(comp.sky.h).wrapping_shr(1));
-        moon(pictor, mx, my, r, chord.luna, 12);
+        let r = i32::from(sky.h).wrapping_div(3).max(2);
+        let mx = i32::from(sky.x).wrapping_add(i32::from(sky.w).wrapping_mul(3).wrapping_div(4));
+        let my = i32::from(sky.y).wrapping_add(i32::from(sky.h).wrapping_shr(1));
+        moon(pictor, mx, my, r, chord.luna, 12, chord.australis);
     }
 }
 
@@ -158,7 +198,7 @@ fn compose_actors(
         foot.0.wrapping_sub(shade),
         foot.1,
         2,
-        0,
+        CLASSIS_ACTORUM,
         scale as u8,
         Modo::Super,
     );
@@ -170,7 +210,7 @@ fn compose_actors(
         phase,
         linea: chord.linea,
     };
-    draw_figure(pictor, &figura, 15, 0);
+    draw_figure(pictor, &figura, 15, CLASSIS_ACTORUM);
     let reach = i32::from(comp.figure_h)
         .wrapping_shr(1)
         .wrapping_add(i32::from(comp.boulder_d).wrapping_shr(1));
@@ -187,46 +227,61 @@ fn compose_actors(
         comp.boulder_d,
         comp.boulder_scale,
         boulder_texture(verbum),
-        12,
-        4,
-        15,
+        [12, 4, 15],
+        CLASSIS_ACTORUM,
     );
 }
 
-/// The chronicle lines on the plinth and, after the recognition, the word in hexadecimal.
+/// The chronicle lines on the plinth and, after the recognition, the word in hexadecimal when
+/// `hexadecimal` (the cell render writes the word as glyph cells instead).
 fn compose_text(
     pictor: &mut Pictor,
     comp: &Compositio,
     regimen: &Regimen,
     mundus: &Mundus,
     lines: &[&str],
+    hexadecimal: bool,
 ) {
     let scale = comp.s;
-    let memoria = mundus.memoria;
     if regimen.has(ANNALES) {
-        for (i, line) in (0i32..).zip(lines.iter().take(usize::from(regimen.lines))) {
-            let indent = i.wrapping_mul(3).wrapping_mul(i32::from(scale));
+        for (i, line) in (0..=u8::MAX).zip(lines.iter().take(usize::from(regimen.lines))) {
+            let (indent, room) = plinth_line(comp, i);
             let x = i32::from(comp.annales.x).wrapping_add(indent);
             let y = i32::from(comp.annales.y)
-                .wrapping_add(i.wrapping_mul(10).wrapping_mul(i32::from(scale)));
-            let room =
-                usize::from(comp.glyphs_per_line).saturating_sub((i as usize).wrapping_add(1) / 2);
-            text(pictor, x, y, scale, cut(line, room), LUM_TEXT, 0);
+                .wrapping_add(i32::from(i).wrapping_mul(10).wrapping_mul(i32::from(scale)));
+            text(
+                pictor,
+                x,
+                y,
+                scale,
+                cut(line, room),
+                LUM_TEXT,
+                CLASSIS_SIGNORUM,
+            );
         }
     }
-    if memoria.eventus() == 12 && memoria.gradus() < 240 {
+    if hexadecimal && recognized(mundus) {
         let digits = hex16(mundus.verbum.bits());
         if let Ok(word) = core::str::from_utf8(&digits) {
             let x = i32::from(pictor.width())
                 .wrapping_sub(i32::from(comp.m))
                 .wrapping_sub(i32::from(scale).wrapping_mul(96));
-            text(pictor, x, i32::from(comp.m), scale, word, 10, 0);
+            text(
+                pictor,
+                x,
+                i32::from(comp.m),
+                scale,
+                word,
+                LUM_VERBUM,
+                CLASSIS_SIGNORUM,
+            );
         }
     }
 }
 
 /// Draws the chalk scene into `tab` with `lines` of chronicle, in the order of
-/// `docs/04-arquitetura.md` §5: slate, sky, slope and ruins, frame, actors, text.
+/// `docs/04-arquitetura.md` §5: slate, sky, slope and ruins, frame, actors, text, and the word
+/// in hexadecimal when `hexadecimal`.
 fn compose(
     mundus: &Mundus,
     chord: &Concentus,
@@ -234,14 +289,17 @@ fn compose(
     regimen: &Regimen,
     lines: &[&str],
     tab: &mut Tabula,
+    hexadecimal: bool,
 ) {
     let comp = compositio(tab.width, tab.height, regimen.lines);
     let verbum = mundus.verbum;
     prefix(tab.pixels, tab.width, tab.height).fill(VOID);
+    let sky = sky_region(&comp, tab.width, verbum.onus());
     let mut pictor = Pictor::new(tab, chord.curvatura);
     compose_sky(
         &mut pictor,
         &comp,
+        sky,
         chord,
         indicia,
         regimen,
@@ -270,11 +328,11 @@ fn compose(
             verbum.semen(),
             chord.linea,
             9,
-            0,
+            CLASSIS_SIGNORUM,
         );
     }
     compose_actors(&mut pictor, &comp, chord, indicia, mundus);
-    compose_text(&mut pictor, &comp, regimen, mundus, lines);
+    compose_text(&mut pictor, &comp, regimen, mundus, lines, hexadecimal);
 }
 
 /// Two tones: the slate (luminance ≤ 1) is 0, the marks of the figure and of the text
@@ -298,30 +356,40 @@ fn bicolor(tab: &mut Tabula) {
     }
 }
 
-/// Letters: every cell of 6×10·s above the plinth becomes the ramp glyph of its mean luminance.
+/// Letters: every cell of 6×10·s above the plinth, including the partial cells of the right
+/// border and of the band between the scene and the plinth, becomes the ramp glyph of the mean
+/// luminance of its pixels inside the scene; the glyphs are clipped to the scene, and the plinth
+/// is left as drawn (REQ-L5-03).
 fn littera_cells(tab: &mut Tabula, comp: &Compositio) {
     let s = usize::from(comp.s.max(1));
     let (cw, ch) = (6usize.wrapping_mul(s), 10usize.wrapping_mul(s));
     let w = usize::from(tab.width);
-    let cols = w.checked_div(cw).unwrap_or(0);
-    let rows = usize::from(comp.scene_h).checked_div(ch).unwrap_or(0);
-    let area = cw.wrapping_mul(ch).max(1) as u32;
+    let scene_h = comp.scene_h.min(tab.height);
+    let Some(pixels) = tab.pixels.get_mut(..w.wrapping_mul(usize::from(scene_h))) else {
+        return;
+    };
+    let mut scene = Tabula {
+        width: tab.width,
+        height: scene_h,
+        pixels,
+    };
+    let cols = w.div_ceil(cw);
+    let rows = usize::from(scene_h).div_ceil(ch);
     for cy in 0..rows {
         for cx in 0..cols {
-            let mut sum = 0u32;
-            for dy in 0..ch {
-                for dx in 0..cw {
-                    let idx = cy
-                        .wrapping_mul(ch)
-                        .wrapping_add(dy)
-                        .wrapping_mul(w)
-                        .wrapping_add(cx.wrapping_mul(cw))
-                        .wrapping_add(dx);
-                    sum =
-                        sum.wrapping_add(u32::from(tab.pixels.get(idx).map_or(0, |&p| lum_of(p))));
+            let (x0, y0) = (cx.wrapping_mul(cw), cy.wrapping_mul(ch));
+            let x1 = x0.wrapping_add(cw).min(w);
+            let y1 = y0.wrapping_add(ch).min(usize::from(scene_h));
+            let (mut sum, mut count) = (0u32, 0u32);
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let idx = y.wrapping_mul(w).wrapping_add(x);
+                    let lum = scene.pixels.get(idx).map_or(0, |&p| lum_of(p));
+                    sum = sum.wrapping_add(u32::from(lum));
+                    count = count.wrapping_add(1);
                 }
             }
-            let mean = sum.checked_div(area).unwrap_or(0).min(15) as usize;
+            let mean = sum.checked_div(count).unwrap_or(0).min(15) as usize;
             let glyph = ORDO
                 .chars()
                 .nth(usize::from(
@@ -330,8 +398,8 @@ fn littera_cells(tab: &mut Tabula, comp: &Compositio) {
                 .unwrap_or(' ');
             let mut cell = [0u8; 4];
             let txt = glyph.encode_utf8(&mut cell);
-            let (x, y) = ((cx.wrapping_mul(cw)) as i32, (cy.wrapping_mul(ch)) as i32);
-            let mut pictor = Pictor::flat(tab);
+            let (x, y) = (x0 as i32, y0 as i32);
+            let mut pictor = Pictor::flat(&mut scene);
             pictor.fill(x, y, cw as i32, ch as i32, 1, 3, false);
             text(&mut pictor, x, y, comp.s, txt, 12, 1);
         }
@@ -351,7 +419,7 @@ fn musivum(
     let comp = compositio(tab.width, tab.height, regimen.lines);
     let scale = usize::from(comp.s.max(1));
     if scale == 1 {
-        compose(mundus, chord, indicia, regimen, lines, tab);
+        compose(mundus, chord, indicia, regimen, lines, tab, true);
         return;
     }
     let (width, height) = (usize::from(tab.width), usize::from(tab.height));
@@ -367,7 +435,7 @@ fn musivum(
         height: sh as u16,
         pixels: prefix,
     };
-    compose(mundus, chord, indicia, regimen, lines, &mut small);
+    compose(mundus, chord, indicia, regimen, lines, &mut small, true);
     let mut y = height;
     while y > 0 {
         y = y.wrapping_sub(1);
@@ -399,24 +467,27 @@ pub fn render(
 ) {
     let chord = concentus(mundus, facultates, indicia, regimen);
     match regimen.stilus {
-        Stilus::Creta => compose(mundus, &chord, indicia, regimen, lines, tab),
+        Stilus::Creta => compose(mundus, &chord, indicia, regimen, lines, tab, true),
         Stilus::Musivum => musivum(mundus, &chord, indicia, regimen, lines, tab),
         Stilus::Littera => {
-            compose(mundus, &chord, indicia, regimen, lines, tab);
+            compose(mundus, &chord, indicia, regimen, lines, tab, true);
             let comp = compositio(tab.width, tab.height, regimen.lines);
             littera_cells(tab, &comp);
         }
         Stilus::Bicolor => {
-            compose(mundus, &chord, indicia, regimen, lines, tab);
+            compose(mundus, &chord, indicia, regimen, lines, tab, true);
             bicolor(tab);
         }
     }
 }
 
-/// Renders one frame as glyph cells: the scene drawn in `scratch` (which must have the grid's
-/// dimensions) becomes ramp glyphs, and the chronicle lines occupy the last rows as letters.
-/// Bits 0..=7 glyph, 8..=11 tone, 12..=13 stratum; only the prefixes of cols·rows cells and
-/// pixels are read and written (REQ-H-02).
+/// Renders one frame as glyph cells and returns whether it did: the scene drawn in `scratch`
+/// becomes ramp glyphs, the chronicle lines occupy the last rows as letters, and after the
+/// recognition the sixteen hexadecimal digits of the word stand at the right end of the first
+/// row (REQ-L8-02). A `scratch` without the grid's dimensions is refused and nothing is written.
+/// Bits 0..=7 glyph ([`cell_glyph`]), 8..=11 tone, 12..=13 stratum; only the prefixes of
+/// cols·rows cells and pixels are read and written (REQ-H-02).
+#[must_use]
 pub fn render_cellae(
     mundus: &Mundus,
     facultates: &Facultates,
@@ -425,16 +496,16 @@ pub fn render_cellae(
     lines: &[&str],
     scratch: &mut Tabula,
     cells: &mut Cellae,
-) {
+) -> bool {
     if scratch.width != cells.cols || scratch.height != cells.rows {
-        return;
+        return false;
     }
     let chord = concentus(mundus, facultates, indicia, regimen);
     let quiet = Regimen {
         lines: 0,
         ..*regimen
     };
-    compose(mundus, &chord, indicia, &quiet, &[], scratch);
+    compose(mundus, &chord, indicia, &quiet, &[], scratch, false);
     let raster = prefix(scratch.pixels, scratch.width, scratch.height);
     for (cell, &p) in prefix(cells.cells, cells.cols, cells.rows)
         .iter_mut()
@@ -448,25 +519,39 @@ pub fn render_cellae(
     }
     let cols = usize::from(cells.cols);
     let rows = usize::from(cells.rows);
+    let letter = |c: char, lum: u8| {
+        u16::from(cell_glyph(c)) | (u16::from(lum) << 8) | (u16::from(CLASSIS_SIGNORUM) << 12)
+    };
     let shown = lines.len().min(usize::from(regimen.lines)).min(rows);
     for (i, line) in lines.iter().take(shown).enumerate() {
         let row = rows.wrapping_sub(shown).wrapping_add(i);
         for (k, ch) in line.chars().take(cols).enumerate() {
-            let glyph = ORDO.chars().position(|o| o == ch).map_or(DOT, |g| g as u8);
             if let Some(cell) = cells.cells.get_mut(row.wrapping_mul(cols).wrapping_add(k)) {
-                *cell = u16::from(glyph) | (u16::from(LUM_TEXT) << 8);
+                *cell = letter(ch, LUM_TEXT);
             }
         }
     }
+    if recognized(mundus) {
+        let digits = hex16(mundus.verbum.bits());
+        for (k, digit) in digits.iter().enumerate() {
+            let column = (cols as i64).wrapping_sub(16).wrapping_add(k as i64);
+            if column >= 0 {
+                if let Some(cell) = cells.cells.get_mut(column as usize) {
+                    *cell = letter(char::from(*digit), LUM_VERBUM);
+                }
+            }
+        }
+    }
+    true
 }
 
 /// Golden hashes of the four scenarios (REQ-L5-09), recorded after visual inspection.
 #[cfg(test)]
 const GOLDEN: [(&str, u64); 4] = [
-    ("vigilia", 0x5660_2C08_3294_6714),
-    ("acedia", 0x9F0B_5319_454B_90FC),
-    ("somnium", 0x56FB_3FA8_FB73_7897),
-    ("quies", 0xD5C6_687C_FD16_F2B7),
+    ("vigilia", 0x7456_D704_92AF_0BB7),
+    ("acedia", 0x86D5_37D5_6636_1E58),
+    ("somnium", 0xE4A8_6523_FA7C_0407),
+    ("quies", 0xBCDB_E4CF_E9EE_0CCF),
 ];
 
 #[cfg(test)]
@@ -577,6 +662,248 @@ mod tests {
         assert_eq!(figure_posture(&with(13, 0, 5), true), Postura::Spectans);
     }
 
+    /// Each layer writes its stratum class (`docs/04-arquitetura.md` §5): the sky
+    /// (constellation, hexagram, moon) class 2; the figure, its shadow and the boulder class 1;
+    /// the frame and the text, with the word after the recognition, class 0 (REQ-L2-08).
+    #[test]
+    fn composition_classes() {
+        use std::collections::BTreeSet;
+        let mut world = Mundus::genesis(1);
+        world.verbum = world.verbum.with_ascensus(90);
+        world.memoria = world
+            .memoria
+            .with_eventus(12)
+            .with_ramus(0)
+            .with_gradus(100);
+        let facultates = Facultates::default();
+        let indicia = Indicia {
+            epoch_ms: NOON + 12 * 3_600_000,
+            energy: 255,
+            ..Indicia::default()
+        };
+        let regimen = Regimen::default();
+        let chord = concentus(&world, &facultates, &indicia, &regimen);
+        assert!(chord.nocturnal && chord.luna != 0, "the moon is up");
+        let comp = compositio(320, 180, 6);
+        for (layer, expected) in [("sky", 2u8), ("actors", 1), ("text", 0), ("frame", 0)] {
+            let mut buf = std::vec![VOID; 320 * 180];
+            let mut tab = Tabula::new(320, 180, &mut buf).unwrap();
+            let mut pictor = Pictor::flat(&mut tab);
+            match layer {
+                "sky" => compose_sky(
+                    &mut pictor,
+                    &comp,
+                    comp.sky,
+                    &chord,
+                    &indicia,
+                    &regimen,
+                    0x10,
+                    0b10_1101,
+                ),
+                "actors" => compose_actors(&mut pictor, &comp, &chord, &indicia, &world),
+                "text" => compose_text(&mut pictor, &comp, &regimen, &world, &LINES, true),
+                _ => draw_frame(&mut pictor, &comp, 32, 255, 0xACE1, 1, 9, 0),
+            }
+            let classes: BTreeSet<u8> = buf
+                .iter()
+                .filter(|&&p| p != VOID)
+                .map(|&p| stratum_of(p))
+                .collect();
+            assert_eq!(classes, BTreeSet::from([expected]), "{layer}");
+        }
+    }
+
+    /// The hexagram is drawn only where the sky holds it: at least 12·s wide and 12·s high
+    /// (REQ-L5-07).
+    #[test]
+    fn hexagram_needs_room() {
+        let world = Mundus::genesis(1);
+        let facultates = Facultates::default();
+        let indicia = Indicia {
+            epoch_ms: NOON,
+            energy: 255,
+            ..Indicia::default()
+        };
+        let regimen = Regimen {
+            layers: HEXAGRAMMA,
+            ..Regimen::default()
+        };
+        let chord = concentus(&world, &facultates, &indicia, &regimen);
+        let comp = compositio(320, 180, 6);
+        for (w, h, drawn) in [
+            (181u16, 11u16, false),
+            (11, 23, false),
+            (12, 12, true),
+            (181, 23, true),
+        ] {
+            let mut buf = std::vec![VOID; 320 * 180];
+            let mut tab = Tabula::new(320, 180, &mut buf).unwrap();
+            let mut pictor = Pictor::flat(&mut tab);
+            let sky = Rect { w, h, ..comp.sky };
+            compose_sky(
+                &mut pictor,
+                &comp,
+                sky,
+                &chord,
+                &indicia,
+                &regimen,
+                0x10,
+                0b11_1111,
+            );
+            let marks = buf.iter().filter(|&&p| p != VOID).count();
+            assert_eq!(marks > 0, drawn, "sky {w}×{h}: {marks} marks");
+        }
+    }
+
+    /// Letters quantize every cell above the plinth, including the partial cells of the right
+    /// border and of the band between the scene and the plinth: there only the slate of the
+    /// cells (tone 1) and the ramp glyphs (tone 12) remain (REQ-L5-03).
+    #[test]
+    fn littera_quantizes_partial_cells() {
+        let (w, h) = (322u16, 180u16);
+        let letters = frame(w, h, Stilus::Littera, Modus::Vigilia, 255);
+        let comp = compositio(w, h, 6);
+        let (wu, scene) = (usize::from(w), usize::from(comp.scene_h));
+        assert!(
+            wu % 6 != 0 && scene % 10 != 0,
+            "partial cells on both sides"
+        );
+        let (right, band) = (wu - wu % 6, scene - scene % 10);
+        for y in 0..scene {
+            for x in 0..wu {
+                if x >= right || y >= band {
+                    let lum = lum_of(letters[x + y * wu]);
+                    assert!(lum == 1 || lum == 12, "({x}, {y}) keeps tone {lum}");
+                }
+            }
+        }
+        let plinth = scene * wu;
+        let chalk = frame(w, h, Stilus::Creta, Modus::Vigilia, 255);
+        assert_eq!(
+            &letters[plinth..],
+            &chalk[plinth..],
+            "the plinth is left as drawn"
+        );
+    }
+
+    /// After the recognition the sixteen hexadecimal digits of the word stand as glyph cells at
+    /// the right end of the first row, in the tone of the raster digits, and the scene behind
+    /// them carries no raster digits; the cell render refuses a scratch of other dimensions
+    /// without writing (REQ-L8-02, REQ-H-02).
+    #[test]
+    fn cellae_agnitio_digits() {
+        let (cols, rows) = (80u16, 24u16);
+        let facultates = Facultates {
+            width: cols,
+            height: rows,
+            cells: true,
+            ..Facultates::default()
+        };
+        let indicia = Indicia {
+            epoch_ms: NOON,
+            ..Indicia::default()
+        };
+        let regimen = Regimen {
+            stilus: Stilus::Littera,
+            ..Regimen::default()
+        };
+        let cellae_of = |world: &Mundus| {
+            let mut scratch = [0u8; 80 * 24];
+            let mut cells = [0u16; 80 * 24];
+            let mut tab = Tabula::new(cols, rows, &mut scratch).unwrap();
+            let mut grid = Cellae::new(cols, rows, &mut cells).unwrap();
+            let done = render_cellae(
+                world,
+                &facultates,
+                &indicia,
+                &regimen,
+                &LINES,
+                &mut tab,
+                &mut grid,
+            );
+            (done, cells)
+        };
+        let mut world = Mundus::genesis(9);
+        world.memoria = world
+            .memoria
+            .with_eventus(12)
+            .with_ramus(0)
+            .with_gradus(100);
+        let (done, cells) = cellae_of(&world);
+        assert!(done);
+        for (k, digit) in hex16(world.verbum.bits()).iter().enumerate() {
+            let cell = cells[usize::from(cols) - 16 + k];
+            assert_eq!(
+                cell & 0xFF,
+                u16::from(cell_glyph(char::from(*digit))),
+                "digit {k}"
+            );
+            assert_eq!((cell >> 8) & 0xF, u16::from(LUM_VERBUM), "digit {k}");
+        }
+        let mut quiet = world;
+        quiet.memoria = quiet.memoria.with_eventus(3).with_ramus(3);
+        let (_, plain) = cellae_of(&quiet);
+        assert_eq!(
+            &cells[usize::from(cols)..],
+            &plain[usize::from(cols)..],
+            "below the first row the cells are the scene of the same world"
+        );
+        world.memoria = world.memoria.with_gradus(240);
+        let (_, late) = cellae_of(&world);
+        assert!(
+            late[usize::from(cols) - 16..usize::from(cols)]
+                .iter()
+                .all(|&c| RAMP.contains(&((c & 0xFF) as u8))),
+            "no digits once the recognition is over"
+        );
+        let mut scratch = [0u8; 10];
+        let mut cells = [0xBEEFu16; 80 * 24];
+        let mut tab = Tabula::new(5, 2, &mut scratch).unwrap();
+        let mut grid = Cellae::new(cols, rows, &mut cells).unwrap();
+        let done = render_cellae(
+            &world,
+            &facultates,
+            &indicia,
+            &regimen,
+            &LINES,
+            &mut tab,
+            &mut grid,
+        );
+        assert!(!done);
+        assert!(cells.iter().all(|&c| c == 0xBEEF), "nothing written");
+    }
+
+    /// Every chronicle line keeps at least 40 glyphs (`docs/07-narrativa.md` §3): line i of the
+    /// plinth steps in by min(3·s·i, 6·s·(glyphs per line − 40)) pixels, nothing when a line
+    /// holds 40 glyphs or fewer, and holds ⌊(width of the chronicles − step)/(6·s)⌋ glyphs.
+    #[test]
+    fn plinth_lines_keep_forty_glyphs() {
+        for width in 240u16..=700 {
+            for height in [60u16, 180, 400] {
+                let comp = compositio(width, height, 6);
+                let (s, glyphs) = (i32::from(comp.s), i32::from(comp.glyphs_per_line));
+                for i in 0..6u8 {
+                    let (indent, room) = plinth_line(&comp, i);
+                    let law = if glyphs > 40 {
+                        (3 * s * i32::from(i)).min(6 * s * (glyphs - 40))
+                    } else {
+                        0
+                    };
+                    assert_eq!(indent, law, "{width}×{height} line {i}");
+                    assert_eq!(
+                        room as i32,
+                        (i32::from(comp.annales.w) - indent) / (6 * s),
+                        "{width}×{height} line {i}"
+                    );
+                    assert!(
+                        room as i32 >= glyphs.min(40),
+                        "{width}×{height} line {i}: {room} glyphs"
+                    );
+                }
+            }
+        }
+    }
+
     /// Two-tone frames use only luminance 0 and 15 (REQ-L5-03).
     #[test]
     fn bicolor_only_two_tones() {
@@ -638,7 +965,7 @@ mod tests {
         };
         let mut tab = Tabula::new(80, 24, &mut scratch).unwrap();
         let mut grid = Cellae::new(80, 24, &mut cells).unwrap();
-        render_cellae(
+        assert!(render_cellae(
             &world,
             &facultates,
             &indicia,
@@ -646,7 +973,7 @@ mod tests {
             &LINES,
             &mut tab,
             &mut grid,
-        );
+        ));
         let glyphs: Vec<u8> = cells.iter().map(|&c| (c & 0xFF) as u8).collect();
         assert!(glyphs.iter().any(|&g| g != 36), "some non-space glyphs");
         let last_rows = &cells[80 * 20..];
@@ -691,7 +1018,7 @@ mod tests {
         let mut cells = [0u16; 20 * 3];
         let mut tab = Tabula::new(cols, rows, &mut scratch).unwrap();
         let mut grid = Cellae::new(cols, rows, &mut cells).unwrap();
-        render_cellae(
+        assert!(render_cellae(
             &world,
             &facultates,
             &indicia,
@@ -699,7 +1026,7 @@ mod tests {
             &lines,
             &mut tab,
             &mut grid,
-        );
+        ));
         for (row, line) in lines.iter().take(usize::from(rows)).enumerate() {
             let expected: Vec<u16> = line
                 .chars()
@@ -842,7 +1169,7 @@ mod tests {
                     let mut cells = std::vec![0xA5A5u16; area + 64];
                     let mut tab = Tabula::new(w, h, &mut scratch).unwrap();
                     let mut grid = Cellae::new(w, h, &mut cells).unwrap();
-                    render_cellae(
+                    assert!(render_cellae(
                         &world,
                         &facultates,
                         &indicia,
@@ -850,7 +1177,7 @@ mod tests {
                         &lines,
                         &mut tab,
                         &mut grid,
-                    );
+                    ));
                     assert!(
                         scratch[area..].iter().all(|&b| b == 0xA5),
                         "{w}×{h} κ {kappa} {stilus:?}: scratch past the grid"

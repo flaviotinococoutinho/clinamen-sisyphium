@@ -63,6 +63,8 @@ pub struct Concentus {
     pub nocturnal: bool,
     /// Lunar phase.
     pub luna: u8,
+    /// Southern hemisphere: the moon is drawn mirrored (REQ-L5-08).
+    pub australis: bool,
     /// Circadian phase.
     pub phase: u8,
 }
@@ -130,6 +132,7 @@ pub fn concentus(
         festum: eph.festum,
         nocturnal: eph.nocturnal,
         luna: eph.luna,
+        australis: facultates.australis,
         phase: eph.phase,
     }
 }

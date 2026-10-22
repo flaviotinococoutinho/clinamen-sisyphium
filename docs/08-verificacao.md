@@ -15,8 +15,9 @@
 `clippy::float_arithmetic`, `clippy::float_cmp`, `clippy::indexing_slicing`,
 `clippy::arithmetic_side_effects`, `clippy::unwrap_used`, `clippy::expect_used`,
 `clippy::panic`, `clippy::unreachable`, `clippy::todo`, `clippy::unimplemented`,
-`clippy::missing_docs_in_private_items`, `unsafe_code` (forbid), `missing_docs` (deny). Os
-testes ficam fora das restrições de pânico.
+`clippy::missing_docs_in_private_items`, `unsafe_code` (forbid), `missing_docs` (deny), e
+`clippy::disallowed_methods` com `i8::abs`, `i16::abs`, `i32::abs` e `i64::abs` vetados em
+`clippy.toml`. Os testes ficam fora das restrições de pânico e da proibição de `abs`.
 
 ## 3. Comandos
 

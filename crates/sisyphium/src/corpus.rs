@@ -257,23 +257,23 @@ pub fn draw_figure(pictor: &mut Pictor, figura: &Figura, lum: u8, stratum: u8) -
     (head.0, head.1, size as u16)
 }
 
-/// Draws the boulder: a disc of diameter `d` whose interior reads the 8×8 `texture` in blocks
-/// of `scale` pixels (bit set → `lum_on`, clear → `lum_off`) and whose rim is `lum_edge`. The
+/// Draws the boulder in the stratum class `stratum`: a disc of diameter `d` whose interior reads
+/// the 8×8 `texture` in blocks of `scale` pixels (tones `[on, off, rim]`: bit set → on, clear →
+/// off) and whose rim is the third tone. The
 /// rim is drawn after the interior, so that it stays the outline where a contraction lands
 /// several logical pixels on one frame pixel (REQ-L2-06); without curvature every logical pixel
 /// has its own frame pixel and the order does not change the frame. Each pass visits only the
 /// rows and columns that can reach the frame.
-#[allow(clippy::too_many_arguments)]
 pub fn draw_boulder(
     pictor: &mut Pictor,
     center: (i32, i32),
     d: u16,
     scale: u16,
     texture: u64,
-    lum_on: u8,
-    lum_off: u8,
-    lum_edge: u8,
+    tones: [u8; 3],
+    stratum: u8,
 ) {
+    let [lum_on, lum_off, lum_edge] = tones;
     let radius = i64::from(i32::from(d).wrapping_shr(1).max(1));
     let scale = i64::from(scale.max(1));
     let r2 = (radius as u32).saturating_mul(radius as u32);
@@ -304,7 +304,7 @@ pub fn draw_boulder(
                             lum_off
                         }
                     };
-                    pictor.plot(x as i32, y as i32, lum, 0, LABEL_NONE, Modo::Super);
+                    pictor.plot(x as i32, y as i32, lum, stratum, LABEL_NONE, Modo::Super);
                 }
             }
         }
@@ -635,7 +635,15 @@ mod tests {
                 let mut buf = [VOID; 64 * 64];
                 let mut tab = Tabula::new(64, 64, &mut buf).unwrap();
                 let mut pictor = Pictor::new(&mut tab, kappa);
-                draw_boulder(&mut pictor, center, 15, 2, 0x00FF_00FF_00FF_00FF, 12, 4, 15);
+                draw_boulder(
+                    &mut pictor,
+                    center,
+                    15,
+                    2,
+                    0x00FF_00FF_00FF_00FF,
+                    [12, 4, 15],
+                    1,
+                );
                 let drawn = |x: i32, y: i32| {
                     (0..64).contains(&x)
                         && (0..64).contains(&y)
@@ -674,9 +682,8 @@ mod tests {
             15,
             2,
             0xFFFF_FFFF_0000_0000,
-            12,
-            4,
-            15,
+            [12, 4, 15],
+            1,
         );
         let lit = |l: u8| (0..32 * 32).filter(|&i| lum_of(buf[i]) == l).count();
         assert!(

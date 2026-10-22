@@ -36,10 +36,11 @@ _kintsugi_).
 | Encosta | de (W·φ⁻², S) a (W − m, S·φ⁻²) | φ⁻² = `0x61C9` |
 | Região do céu | x ∈ [m, W·φ⁻¹]; y ∈ [m, S·φ⁻²] | φ⁻¹ = `0x9E37` |
 | Região das crônicas | x ∈ [m, W − m]; y ∈ [S, H − m]; 48 glifos por linha a 320 px | — |
+| Recuo das linhas | a linha i recua min(3·s·i, 6·s·(glifos por linha − 40)) px, nada com 40 glifos por linha ou menos; cada linha conserva ≥ 40 glifos | — |
 | Altura da figura | S·φ⁻³ (24 px a 320×180) | φ⁻³ = `0x3C6F` |
 | Diâmetro da rocha | ⌈altura da figura / φ⌉; textura 8×8 ampliada por max(1, ⌊(diâmetro + 4)/8⌋) | φ⁻¹ = `0x9E37` |
 | Estratos | 4 faixas de paralaxe com velocidades φ⁻¹..φ⁻⁴ | — |
-| Harmonia corrompida | com `onus` > 200, φ⁻¹ ⊕ `0x1337` nas proporções do céu (REQ-L5-12) | — |
+| Harmonia corrompida | com `onus` > 200, a borda direita do céu em ⌊W·(φ⁻¹ ⊕ `0x1337`)⌋ (REQ-L5-12) | — |
 
 ## 5. Linha
 

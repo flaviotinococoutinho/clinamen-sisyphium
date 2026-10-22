@@ -1,2 +1,10 @@
 # Clippy configuration for the workspace. Lint levels live in Cargo.toml ([workspace.lints]).
 msrv = "1.85"
+# The absolute value of a signed integer overflows at the type's minimum; the core uses
+# `unsigned_abs` or `saturating_abs` instead (no reachable panic).
+disallowed-methods = [
+    { path = "i8::abs", reason = "overflows at i8::MIN; use unsigned_abs or saturating_abs" },
+    { path = "i16::abs", reason = "overflows at i16::MIN; use unsigned_abs or saturating_abs" },
+    { path = "i32::abs", reason = "overflows at i32::MIN; use unsigned_abs or saturating_abs" },
+    { path = "i64::abs", reason = "overflows at i64::MIN; use unsigned_abs or saturating_abs" },
+]
