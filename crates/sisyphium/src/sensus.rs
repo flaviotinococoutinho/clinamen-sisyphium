@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn rare_gate_reads_the_memory() {
         let base = open_windows(0, 1 << 17, 0b101, 3);
-        assert!(!base.is_empty());
+        assert_ne!(base, [] as [i64; 0], "base state opens no rare window");
         assert_ne!(base, open_windows(0, 1 << 17, 0b100, 3));
         assert_ne!(base, open_windows(0, 1 << 17, 0b101, 2));
         assert_ne!(base, open_windows(0, 1 << 17, 0b101 | 1 << 13, 3));
