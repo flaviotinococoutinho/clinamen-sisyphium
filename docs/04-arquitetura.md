@@ -146,12 +146,20 @@ elementos passam pela projeção de curvatura):
    por todas as etapas seguintes; `palette(&concentus)` deriva as 16 cores; nenhuma etapa lê o estado para decidir cor, contraste, espessura ou registro;
 1. ardósia (luminância 1, estrato 3);
 2. céu na região `sky_region(comp, W, onus)`: constelação, grafo das crônicas, hexagrama,
-   lua, linha do evento raro (estrato 2);
+   lua (estrato 2);
 3. estratos da encosta (perfil pela regra 30 evoluída por coluna), ruínas (estratos 2..=1):
    cada traço tem tom ≤ 15−`contrastus` e recorte projetado em y < S; a projeção mantém o
    centro e as dimensões do quadro completo;
 4. moldura orgânica (estrato 0);
-5. figura, rocha, sombra, persona, ensō (estrato 1); em seguida, aforismo do nó 0 com fundo
+5. sombra, figura e rocha (estrato 1): a sombra aponta para a direita na janela liminar;
+   a postura usa `contemplating` e `asleep`; a rocha recebe a microtextura em contemplação
+   quando a escala da célula é ≥ 8 e a costura kintsugi em AmorFati. O raio raro liga o ponto
+   de Hénon no céu ao topo da cabeça (tom 15, estrato 2). Personae e atributos entram com
+   PERSONAE: Diógenes, lâmpada; Heráclito, pira; daemon no cume. O ensō aparece no quadrante
+   previsto com armadilha pronta, exceto em Somnium. Impossibilia usa a escada fechada de
+   span 6 e escala 2s, sob IMPOSSIBILIA ∧ ((`conatus` > 200 ∧ `onus` > 200) ∨ Somnium),
+   com classes de dominância e rótulos por lance. Todos esses elementos precedem o
+   aforismo do nó 0 com fundo
    ardósia de (6·glifos+2)·s por 12s em (x−s,y−s), sob a projeção, estrato 2 e recorte
    projetado em y < S. A âncora nominal é (nó0.x+2s,nó0.y−5s). A caixa
    do hexagrama ativo (incluindo espessura) e a caixa do disco lunar noturno iluminado,
@@ -159,8 +167,8 @@ elementos passam pela projeção de curvatura):
    posições imediatamente acima/abaixo de cada caixa, vence o menor deslocamento que caiba
    em 0..S, mantenha a caixa projetada dentro do quadro acima do plinto e evite ambas nos
    espaços lógico e projetado, desempate pelo menor y. Os limites projetados reutilizam
-   a projeção e a cobertura de `plot`; somam separadamente o maior bloco às coordenadas
-   máximas, incluindo degraus de cobertura entre as amostras. Sem candidato com x nominal, tenta distâncias horizontais inteiras
+   a projeção e a cobertura retangular de `plot`, incluindo o vizinho após a última coluna
+   e a última linha lógicas; largura e altura permanecem independentes. Sem candidato com x nominal, tenta distâncias horizontais inteiras
    crescentes, esquerda antes de direita em empate, limitadas pela largura do quadro, com os
    mesmos candidatos verticais. Vence a primeira posição viável; a caixa também precisa caber
    logicamente na largura. Esgotada essa busca, repete a ordem horizontal com até seis

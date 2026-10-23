@@ -86,6 +86,13 @@ Civilizações e épocas das consequências: uma por ramus, 24 no total, sem rep
 | 14 | Heráclito | crepúsculo; `ascensus` 64..=128; uma pira ao fundo | uma frase sobre o rio e a pedra (abstrato) | `onus` −16; `curvatura` +8 |
 | 15 | Daemon | madrugada; cume; ociosidade ≥ 30 min | uma pergunta sobre a repetição (epocal) | AmorFati se `conatus` ≥ 200; senão `onus` +16 |
 
+A camada PERSONAE governa as figuras secundárias e seus atributos. Diógenes é ereto, tom 13,
+40 unidades de `ascensus` à frente, com lâmpada de raio s e tom 15 junto à cabeça.
+Heráclito é contemplativo, tom 11, 48 unidades atrás; a pira de tom 14 fica no pé da encosta,
+com altura h/2 e ápice deslocado s nas fases ímpares da marcha. O daemon é ereto, tom 4,
+no cume. Os deslocamentos de `ascensus` saturam em 0..=255. A figura principal contempla
+durante qualquer persona, mesmo quando PERSONAE estiver desligada.
+
 ## 6. Somnium e agnitio
 
 Entrada sem aviso: a curvatura cresce em módulo e a projeção radial deforma os traços da cena

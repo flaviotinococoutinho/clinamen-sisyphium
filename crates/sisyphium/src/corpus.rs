@@ -263,7 +263,11 @@ pub fn draw_figure(pictor: &mut Pictor, figura: &Figura, lum: u8, stratum: u8) -
 /// rim is drawn after the interior, so that it stays the outline where a contraction lands
 /// several logical pixels on one frame pixel (REQ-L2-06); without curvature every logical pixel
 /// has its own frame pixel and the order does not change the frame. Each pass visits only the
-/// rows and columns that can reach the frame.
+/// rows and columns that can reach the frame. `seed_rows` selects the rotated seed rows,
+/// whose ordinary tones are seven and five (REQ-L3-03). At scale eight or larger, `micro`
+/// replaces these tones with the nested word: macro on uses 15/12, macro off uses 6/4 for
+/// micro on/off, respectively (REQ-L7-04).
+#[allow(clippy::too_many_arguments)]
 pub fn draw_boulder(
     pictor: &mut Pictor,
     center: (i32, i32),
@@ -272,6 +276,8 @@ pub fn draw_boulder(
     texture: u64,
     tones: [u8; 3],
     stratum: u8,
+    seed_rows: u8,
+    micro: Option<(Verbum, u8)>,
 ) {
     let [lum_on, lum_off, lum_edge] = tones;
     let radius = i64::from(i32::from(d).wrapping_shr(1).max(1));
@@ -298,7 +304,30 @@ pub fn draw_boulder(
                             (dx.wrapping_add(radius).checked_div(scale).unwrap_or(0) & 7) as u32;
                         let row =
                             (dy.wrapping_add(radius).checked_div(scale).unwrap_or(0) & 7) as u32;
-                        if (texture >> (row.wrapping_mul(8).wrapping_add(col))) & 1 == 1 {
+                        let macro_lit =
+                            (texture >> (row.wrapping_mul(8).wrapping_add(col))) & 1 == 1;
+                        if let Some((word, zoom)) = micro.filter(|_| scale >= 8) {
+                            let a = dx
+                                .wrapping_add(radius)
+                                .rem_euclid(scale)
+                                .wrapping_mul(8)
+                                .checked_div(scale)
+                                .unwrap_or(0) as u8;
+                            let b = dy
+                                .wrapping_add(radius)
+                                .rem_euclid(scale)
+                                .wrapping_mul(8)
+                                .checked_div(scale)
+                                .unwrap_or(0) as u8;
+                            match (macro_lit, crate::transumptio::abyme(word, a, b, zoom).1) {
+                                (true, true) => 15,
+                                (true, false) => 12,
+                                (false, true) => 6,
+                                (false, false) => 4,
+                            }
+                        } else if seed_rows.wrapping_shr(row) & 1 == 1 {
+                            if macro_lit { 7 } else { 5 }
+                        } else if macro_lit {
                             lum_on
                         } else {
                             lum_off
@@ -625,6 +654,100 @@ mod tests {
         }
     }
 
+    /// Only the two rotated seed rows use tones seven and five (REQ-L3-03).
+    #[test]
+    fn semen_rows_dimmed() {
+        for ascensus in [0u8, 3] {
+            let word = Verbum::new(0x55AA_55AA_55AA_55AA).with_ascensus(ascensus);
+            let texture = boulder_texture(word);
+            let rows = 0b11u8.rotate_left(u32::from(ascensus & 7));
+            let mut pixels = [VOID; 40 * 40];
+            draw_boulder(
+                &mut Pictor::flat(&mut Tabula::new(40, 40, &mut pixels).unwrap()),
+                (20, 20),
+                32,
+                4,
+                texture,
+                [12, 4, 15],
+                1,
+                rows,
+                None,
+            );
+            let mut seed = 0;
+            let mut other = 0;
+            for y in 5..36i32 {
+                for x in 5..36i32 {
+                    if (x - 20) * (x - 20) + (y - 20) * (y - 20) > 15 * 15 {
+                        continue;
+                    }
+                    let row = ((y - 4) / 4) & 7;
+                    let col = ((x - 4) / 4) & 7;
+                    let lit = texture >> (8 * row + col) & 1 == 1;
+                    let expected = if rows >> row & 1 == 1 {
+                        seed += 1;
+                        if lit { 7 } else { 5 }
+                    } else {
+                        other += 1;
+                        if lit { 12 } else { 4 }
+                    };
+                    assert_eq!(lum_of(pixels[y as usize * 40 + x as usize]), expected);
+                }
+            }
+            assert!(seed > 0 && other > 0);
+        }
+    }
+
+    /// The micro image overrides seed tones only when each macro cell holds eight pixels
+    /// (REQ-L7-04); every interior pixel reads the prescribed subcell.
+    #[test]
+    fn abyme_cells_and_threshold() {
+        let word = Verbum::new(0x55AA_F00F_33CC_A55A);
+        for scale in [7, 8, 10] {
+            let mut pixels = [VOID; 100 * 100];
+            let texture = boulder_texture(word);
+            draw_boulder(
+                &mut Pictor::flat(&mut Tabula::new(100, 100, &mut pixels).unwrap()),
+                (50, 50),
+                80,
+                scale,
+                texture,
+                [12, 4, 15],
+                1,
+                255,
+                Some((word, 19)),
+            );
+            for y in 12..89i32 {
+                for x in 12..89i32 {
+                    if (x - 50) * (x - 50) + (y - 50) * (y - 50) > 39 * 39 {
+                        continue;
+                    }
+                    let (u, v) = (x - 10, y - 10);
+                    let row = (v / i32::from(scale)) & 7;
+                    let col = (u / i32::from(scale)) & 7;
+                    let macro_lit = texture >> (8 * row + col) & 1 == 1;
+                    let expected = if scale < 8 {
+                        if macro_lit { 7 } else { 5 }
+                    } else {
+                        let micro_lit = crate::transumptio::abyme(
+                            word,
+                            ((u % i32::from(scale)) * 8 / i32::from(scale)) as u8,
+                            ((v % i32::from(scale)) * 8 / i32::from(scale)) as u8,
+                            19,
+                        )
+                        .1;
+                        match (macro_lit, micro_lit) {
+                            (true, true) => 15,
+                            (true, false) => 12,
+                            (false, true) => 6,
+                            (false, false) => 4,
+                        }
+                    };
+                    assert_eq!(lum_of(pixels[y as usize * 100 + x as usize]), expected);
+                }
+            }
+        }
+    }
+
     /// Under a contraction several logical pixels land on one frame pixel; the rim stays the
     /// outline of the boulder: at least nine in ten drawn pixels next to an undrawn one carry the
     /// rim tone, at five places of the frame (REQ-L2-06, REQ-L3-03).
@@ -643,6 +766,8 @@ mod tests {
                     0x00FF_00FF_00FF_00FF,
                     [12, 4, 15],
                     1,
+                    0,
+                    None,
                 );
                 let drawn = |x: i32, y: i32| {
                     (0..64).contains(&x)
@@ -684,6 +809,8 @@ mod tests {
             0xFFFF_FFFF_0000_0000,
             [12, 4, 15],
             1,
+            0,
+            None,
         );
         let lit = |l: u8| (0..32 * 32).filter(|&i| lum_of(buf[i]) == l).count();
         assert!(

@@ -85,8 +85,18 @@ sólidas; a sombra usa tom 2.
 - Silhueta legível em todos os stili em menos de 1 s: a figura e a rocha têm contraste mínimo de 8
   tons com o fundo.
 - Posturas: ereta, curvada, ajoelhada, contemplativa, adormecida, voltada ao observador.
-- A rocha é a leitura direta do `Verbum`; a lasca retira um bit; em AmorFati a lasca recebe uma
-  linha de tom 15 (reparo visível).
+- A rocha é a leitura direta do `Verbum`; a lasca retira um bit. As duas linhas de `semen`
+  usam tons 7/5; as demais usam 12/4. Em contemplação, células de escala ≥ 8 contêm a
+  microtextura: 15/12 no macro aceso, 6/4 no apagado, com precedência sobre os tons de `semen`.
+- Em AmorFati, a rocha recebe a costura kintsugi de tom 15 e espessura s. Quatro pontos em
+  cx−r, cx−r/3, cx+r/3 e cx+r têm desvios verticais derivados dos quatro bytes de
+  `mix(Verbum ≫ 48)`: byte mod (r/2+1)−r/4. Três segmentos unem esses pontos.
+- Com PERSONAE, Diógenes aparece ereto em `ascensus`+40 (saturado em 255), tom 13. A lâmpada
+  é um disco de raio s e tom 15 em (cabeça.x+lado+2s, cabeça.y+2·lado).
+- Heráclito aparece contemplativo em `ascensus`−48 (saturado em 0), tom 11. A pira no pé
+  da encosta é um triângulo de altura h/2 e tom 14; seu ápice desloca s nas fases ímpares da marcha.
+- O daemon aparece ereto no cume (`ascensus` = 255), tom 4. Desligar PERSONAE oculta a
+  figura secundária e seu atributo; a contemplação da figura principal continua sendo lei do estado.
 
 ## 7. Cor
 
