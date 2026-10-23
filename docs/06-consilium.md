@@ -23,9 +23,9 @@ Cardinalidade: 4 × 4 × 5 × 256 × 7 = 143 360 regimina.
 
 ## 3. Custo
 
-Custo em unidades de trabalho por segundo, derivado de medições do checkpoint 4 e documentado na
-tabela abaixo. O custo total é a soma dos custos das camadas vezes o fator de área (W·H/57 600)
-vezes a cadência (1000/interval_ms).
+Custo em unidades de trabalho por segundo. A tabela define as unidades de um quadro de
+referência de 320×180. O custo por quadro soma a base, os estratos adicionais, as camadas
+habilitadas e o acréscimo do stilus.
 
 | Componente | Custo por quadro a 320×180 |
 | --- | --- |
@@ -42,8 +42,15 @@ vezes a cadência (1000/interval_ms).
 | Littera (mapa) | 2 |
 | Bicolor (limiar) | 3 |
 
+`cost = ⌊unidades · área · 1000 / (57 600 · interval_ms)⌋`, com os produtos em `u64` e resultado
+saturado em `u32::MAX`. Um intervalo de 0 ms custa `u32::MAX`. A área é W·H em Creta, Littera e
+Bicolor. Em Musivum, a área é ⌊W/s⌋·⌊H/s⌋, com s = max(1, min(⌊W/320⌋, ⌊H/180⌋)) da composição
+(REQ-L2-11): o quadro é desenhado na escala lógica antes da ampliação. Crônicas só custam quando
+ANNALES está habilitada, uma unidade por linha.
+
 Orçamento: `budget = compute · energy / 64` unidades por segundo. Exemplo: computador de mesa
 (compute 255) ligado à energia (255): 1016 unidades/s. Telefone (compute 96) a 30 % (77): 115
+unidades/s. As divisões inteiras descartam a fração; um quadro por minuto pode custar zero
 unidades/s.
 
 ## 4. Valor semiótico
@@ -55,29 +62,74 @@ Valor por camada, modulado pela situação.
 | céu | 8 | ×2 durante clinamen ativo (`ramus` ≠ 3) |
 | moldura | 5 | ×2 com `onus` > 128 (murcha visível) |
 | crônicas | 2 por linha | ×2 durante clinamen ativo |
-| personae | 6 | ×0 fora de persona |
-| ruínas | 3 | ×0 sem ruínas |
+| personae | 6 | ×0 fora de `eventus` 13..=15 |
+| ruínas | 3 | ×0 quando popcount(`clausurae` ≫ 1) = 0 |
 | impossibilia | 7 | ×0 fora das condições (`conatus` > 200 ∧ `onus` > 200, ou Somnium) |
 | hexagrama | 2 | ×2 com `tranquillitas` ≥ 48 |
 | pontilhado | 2 | ×2 em Somnium |
 | estratos | 2 por estrato além do primeiro | ×2 em Somnium |
 | cadência | 42 ms: 6; 125 ms: 4; 250 ms: 2; 1000 ms: 1; 60 000 ms: 0 | ×0 para 42 ms com energia < 179 |
-| stilus | Creta 4; Musivum 3; Littera 2; Bicolor 1 | Littera 6 na redução eidética; Bicolor 6 em Quies |
+| stilus | Creta 4; Musivum 3; Littera 2; Bicolor 1 | Creta 8 em AmorFati; Littera 6 na redução eidética; Bicolor 6 em Quies |
 
-Valor máximo teórico: soma dos máximos. Nível de aspiração: 80 % do valor máximo teórico
-(Simon, 1955); se inatingível dentro do orçamento, a busca devolve o melhor das 64 propostas.
+A redução eidética ocorre com energia 39..=76 e `tranquillitas` ≥ 48. AmorFati soma 4 ao valor
+de Creta; constitui preferência, sem fixar o stilus. Energia < 39 força a forma Bicolor
+(REQ-L1-07), mas o valor 6 pertence ao modus Quies: a energia não muda o modo lido pelo cálculo
+de valor.
+
+`value_max` soma os máximos por dimensão na situação presente, sob os forçamentos: quatro
+estratos; todas as camadas de valor positivo com seis linhas; a cadência permitida de maior
+valor; o stilus permitido de maior valor. O orçamento não entra nesse máximo. O nível de
+aspiração é 80 % desse valor (Simon, 1955), comparado por `5 · value ≥ 4 · value_max`, sem
+arredondamento. Se o orçamento impedir esse nível, a busca devolve o maior escore encontrado em
+até 64 propostas.
 
 ## 5. Busca
 
-1. Forçamentos (REQ-C-04) fixam dimensões obrigatórias.
-2. Estado inicial: regimen base da faixa de energia (REQ-L1-07) com todas as camadas.
-3. 64 iterações de recozimento (Kirkpatrick et al., 1983): proposta = vizinho que altera uma
-   dimensão escolhida pelo gerador de Galois a partir de `semen`; aceita se valor − λ·custo
-   melhora ou se `(semen ∧ 0xFF) < 255·exp(−Δ/T)` aproximado por tabela inteira de 16 entradas,
-   com T = energia/16; rejeita propostas acima do orçamento.
-4. Para quando o valor atinge o nível de aspiração ou ao fim das 64 iterações; devolve o melhor
-   encontrado. λ = 1/8.
-5. Determinismo: mesmas entradas, mesmo regimen.
+Os forçamentos seguem esta precedência (REQ-C-04): `cells` fixa Littera; senão `color_bits` = 1
+fixa Bicolor; senão Quies ou energia < 39 fixa Bicolor; senão Somnium substitui Littera por
+Creta. Somnium exige ao menos dois estratos em qualquer meio, inclusive em células. Quies ou
+energia < 39 fixa `tick_ms` em 60 000; nos demais casos vale `band_tick_ms(energy)`.
+
+O piso de apresentação é o menor elemento de `INTERVALS = [42, 125, 250, 1000, 60_000]` maior ou
+igual a max(`tick_ms`, ⌈1000/`max_hz`⌉). Com `max_hz` = 0, o piso é 60 000 ms. Os forçamentos
+elevam cada intervalo proposto a esse piso.
+
+O regimen piso (`floor`) tem o stilus forçado, ou Musivum quando livre; um estrato, dois em
+Somnium; nenhuma camada; nenhuma linha; `interval_ms` = 60 000; `tick_ms` pela faixa, ou
+60 000 em Quies. A busca devolve esse piso imediatamente quando o orçamento calculado é zero ou
+quando o custo do piso excede o orçamento. O retorno com orçamento zero vale mesmo quando o
+truncamento do custo permitiria camadas adicionais de custo zero.
+
+A base tem Creta, quatro estratos, seis linhas, somente as camadas de valor positivo na
+situação, `tick_ms` pela faixa e o piso de apresentação. Os forçamentos se aplicam à base. O
+estado inicial é a base quando seu custo cabe no orçamento; caso contrário é o regimen piso.
+
+O escore é `8 · value − cost`, calculado em `i64`, equivalente a valor − λ·custo com λ = 1/8. O
+melhor regimen começa no estado inicial. A temperatura T = ⌊energia/16⌋ permanece constante.
+Cada uma das até 64 iterações segue esta ordem (Kirkpatrick et al., 1983):
+
+1. A busca para se o valor do melhor regimen atinge o nível de aspiração.
+2. O gerador g, iniciado em `semen`, avança por Galois; g mod 5 escolhe a dimensão. O gerador
+   avança de novo; `pick` = g ≫ 4 escolhe o valor da proposta.
+3. A proposta troca uma dimensão: stilus `[Creta, Musivum, Littera, Bicolor][pick mod 4]`;
+   estratos `1 + pick mod 4`; intervalo `INTERVALS[pick mod 5]`; camadas com o bit `pick mod 8`
+   invertido; linhas `pick mod 7`. Os forçamentos se aplicam depois da troca.
+4. A proposta igual ao regimen corrente ou acima do orçamento é descartada.
+5. Δ = escore corrente − escore proposto. A proposta é aceita com Δ ≤ 0. Com Δ > 0 e T = 0, é
+   rejeitada. Com Δ > 0 e T > 0, g avança e a proposta é aceita se `(g ∧ 0xFF) < EXP[k]`, com
+   k = min(15, ⌊4·Δ/T⌋) (Metropolis et al., 1953).
+6. A proposta aceita vira corrente. O melhor regimen muda somente se o escore proposto é
+   estritamente maior que o melhor escore. Ao encerrar, a busca devolve o melhor regimen.
+
+`EXP[k] = ⌊255·e^(−k/4)⌋`, para k = 0..=15:
+
+| k | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| EXP[k] | 255 | 198 | 154 | 120 | 93 | 73 | 56 | 44 | 34 | 26 | 20 | 16 | 12 | 9 | 7 | 5 |
+
+A tabela ocupa `u128` = `0x0507_090C_1014_1A22_2C38_495D_789A_C6FF`; o byte k é
+`(EXP >> (8 · k)) & 0xFF`. A aceitação usa somente inteiros. A mesma combinação de facultates,
+mundo e energia produz o mesmo regimen; o gerador da busca não altera o mundo.
 
 ## 6. Adaptação ao sistema
 

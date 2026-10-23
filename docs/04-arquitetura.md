@@ -26,11 +26,11 @@ clinamen-sisyphium/
 | `memoria` | L0 | `Memoria`: leiaute, acesso a campos, empacotamento | — |
 | `natura` | L1 | gerador de Galois; regra 30; ruído 1/f sem estado; mapa logístico; atrator de Hénon; vento | `spatium` (ponto fixo) |
 | `ephemeris` | L1 | fases circadiana, sazonal e lunar; noturno; festum | — |
-| `consilium` | L1 | `Regimen`; busca satisfatória por recozimento | `hospes`, `natura` |
+| `consilium` | L1 | faixas de energia; custo, valor e orçamento; busca satisfatória por recozimento para escolher `Regimen` | `hospes`, `mundus`, `verbum`, `memoria`, `natura`, `spatium` |
 | `spatium` | L2 | Q16.16; seno de Bhaskara; isqrt; CORDIC; dispersão; projeção de curvatura; estratos; dominância; dimétrica; escada de Penrose; composição | — |
 | `corpus` | L3 | marcha; postura; figuras de blocos; rocha como leitura do `Verbum`; lasca | `verbum`, `spatium`, `signum::raster`, `signum::pixel` |
 | `arbitrium` | L4 | clinamina; annales (corpus en/pt); passo; leis de onus, conatus, tranquillitas, ascensus; personae; modus; agnitio; curvatura; contemplação; fecho; interrupção | `verbum`, `memoria`, `natura`, `hospes` |
-| `concentus` | L5 | `Concentus`: vetor de afinação de todos os canais (tom, contraste, espessura, cadência, registro do texto, curvatura, índice sonoro) derivado do estado, da efeméride e do regimen | `verbum`, `ephemeris`, `consilium` |
+| `concentus` | L5 | `Concentus`: vetor de afinação de todos os canais (tom, contraste, espessura, cadência, registro do texto, curvatura, índice sonoro) derivado do estado, da efeméride e do `Regimen` de `hospes` | `verbum`, `ephemeris`, `hospes`, `mundus`, `arbitrium` |
 | `signum` | L5 | pixel; paleta; stili; fonte; primitivas (linha, disco, retângulo, texto); chicote; grafo do céu; hexagrama; lua; ruínas; máscaras de espaço negativo; compositor de cena | `spatium`, `corpus`, `arbitrium`, `concentus` |
 | `sensus` | L6 | mutação em oclusão; anomalia liminar; porta de evento raro; inibição de retorno | `verbum`, `natura` |
 | `transumptio` | L7 | oráculo; armadilha; metalepse; amostragem em abismo | `verbum`, `memoria`, `arbitrium`, `spatium`, `hospes` |
