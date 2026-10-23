@@ -187,28 +187,50 @@ impl<'t, 'p> Pictor<'t, 'p> {
         )
     }
 
-    /// Whether an entire logical rectangle fits the projected writing region (REQ-L2-06,
-    /// REQ-L5-06), using the exact point and block of `plot`. In the operational curvature
-    /// range ±64, expansion reaches its extrema at corners; contraction may also reach an
-    /// extremum at an edge point nearest either central axis. These nine samples include
-    /// both cases without a second projection formula. Empty rectangles do not fit.
-    pub(crate) fn contains_projection(&self, x: i32, y: i32, w: i32, h: i32) -> bool {
+    /// Conservative projected bounds `[left, top, right, bottom]` with exclusive ends for a
+    /// logical rectangle, including each block written by `plot` (REQ-L2-06, REQ-L5-06).
+    /// In the operational curvature range ±64, expansion reaches its extrema at corners;
+    /// contraction may also reach an extremum at an edge point nearest either central axis.
+    /// These nine samples reuse the point and coverage of `plot`. The greatest sampled block
+    /// is added to both upper bounds separately: a step in block size can otherwise put an
+    /// edge pixel beyond the sample with the greatest coordinate. Empty rectangles have no bounds.
+    pub(crate) fn projected_bounds(&self, x: i32, y: i32, w: i32, h: i32) -> Option<[i64; 4]> {
         if w <= 0 || h <= 0 {
-            return false;
+            return None;
         }
         let right = x.saturating_add(w.saturating_sub(1));
         let bottom = y.saturating_add(h.saturating_sub(1));
         let columns = [x, self.cx.clamp(x, right), right];
         let rows = [y, self.cy.clamp(y, bottom), bottom];
-        columns.into_iter().all(|column| {
-            rows.into_iter().all(|row| {
+        let mut bounds = [i64::MAX, i64::MAX, i64::MIN, i64::MIN];
+        let mut coverage = 1;
+        for column in columns {
+            for row in rows {
                 let (px, py, side) = self.project(column, row);
-                px >= 0
-                    && py >= 0
-                    && px.saturating_add(side) <= i64::from(self.tab.width)
-                    && py.saturating_add(side) <= i64::from(self.finis_y)
+                let [left, top, right, bottom] = &mut bounds;
+                *left = (*left).min(px);
+                *top = (*top).min(py);
+                *right = (*right).max(px);
+                *bottom = (*bottom).max(py);
+                coverage = coverage.max(side);
+            }
+        }
+        let [_, _, right, bottom] = &mut bounds;
+        *right = (*right).saturating_add(coverage);
+        *bottom = (*bottom).saturating_add(coverage);
+        Some(bounds)
+    }
+
+    /// Whether an entire logical rectangle fits the projected writing region (REQ-L2-06,
+    /// REQ-L5-06), using the same bounds as projected symbol separation. Empty rectangles do not fit.
+    pub(crate) fn contains_projection(&self, x: i32, y: i32, w: i32, h: i32) -> bool {
+        self.projected_bounds(x, y, w, h)
+            .is_some_and(|[left, top, right, bottom]| {
+                left >= 0
+                    && top >= 0
+                    && right <= i64::from(self.tab.width)
+                    && bottom <= i64::from(self.finis_y)
             })
-        })
     }
 
     /// Writes one logical pixel: the block of REQ-L2-06 whose top-left corner is the projected
@@ -411,28 +433,89 @@ mod tests {
         }
     }
 
-    /// Projected containment agrees with visiting every logical pixel, including edge
-    /// extrema near the central axes throughout the operational curvature range (REQ-L2-06).
+    /// Projected bounds contain every written block in portrait, square and landscape frames,
+    /// and containment agrees with visiting every logical pixel throughout the operational
+    /// curvature range (REQ-L2-06, REQ-L5-06).
     #[test]
     fn projected_rectangle_containment() {
-        let mut buffer = [0; 64 * 48];
-        let mut tab = crate::hospes::Tabula::new(64, 48, &mut buffer).unwrap();
-        for kappa in (-64i8..=64).step_by(8) {
-            let painter = Pictor::ground(&mut tab, kappa, 40, 15);
-            for x in (-16..80).step_by(11) {
-                for y in (-12..60).step_by(9) {
-                    for (w, h) in [(1, 1), (7, 11), (21, 9), (33, 25)] {
-                        let expected = (x..x + w).all(|column| {
-                            (y..y + h).all(|row| {
-                                let (px, py, side) = painter.project(column, row);
-                                px >= 0 && py >= 0 && px + side <= 64 && py + side <= 40
-                            })
-                        });
-                        assert_eq!(
-                            painter.contains_projection(x, y, w, h),
-                            expected,
-                            "curvature {kappa}, rectangle {x},{y},{w},{h}"
-                        );
+        for (frame_w, frame_h) in [(64u16, 48u16), (48, 64), (64, 64), (65, 65)] {
+            let mut buffer = std::vec![0; usize::from(frame_w) * usize::from(frame_h)];
+            let mut tab = Tabula::new(frame_w, frame_h, &mut buffer).unwrap();
+            let scene_h = frame_h - 8;
+            for kappa in (-64i8..=64).step_by(8) {
+                let painter = Pictor::ground(&mut tab, kappa, scene_h, 15);
+                for x in (-16..80).step_by(11) {
+                    for y in (-12..76).step_by(9) {
+                        for (w, h) in [(1, 1), (7, 11), (21, 9), (33, 25)] {
+                            let [left, top, right, bottom] =
+                                painter.projected_bounds(x, y, w, h).unwrap();
+                            let mut contained = true;
+                            for column in x..x + w {
+                                for row in y..y + h {
+                                    let (px, py, side) = painter.project(column, row);
+                                    assert!(
+                                        left <= px
+                                            && top <= py
+                                            && right >= px + side
+                                            && bottom >= py + side,
+                                        "{frame_w}x{frame_h}, curvature {kappa}, rectangle {x},{y},{w},{h}: ({column},{row}) projects to {px},{py},{side} outside {left},{top},{right},{bottom}"
+                                    );
+                                    contained &= px >= 0
+                                        && py >= 0
+                                        && px + side <= i64::from(frame_w)
+                                        && py + side <= i64::from(scene_h);
+                                }
+                            }
+                            assert_eq!(
+                                painter.contains_projection(x, y, w, h),
+                                contained,
+                                "{frame_w}x{frame_h}, curvature {kappa}, rectangle {x},{y},{w},{h}"
+                            );
+                        }
+                    }
+                }
+                assert_eq!(painter.projected_bounds(0, 0, 0, 1), None);
+                assert_eq!(painter.projected_bounds(0, 0, 1, 0), None);
+            }
+        }
+    }
+
+    /// The shared bounds enclose every projected block of representative annotation and
+    /// symbol rectangles at operational resolutions and curvature extremes (REQ-L2-06, REQ-L5-06).
+    #[test]
+    fn projected_bounds_cover_operational_rectangles() {
+        for (w, h) in [
+            (320u16, 180u16),
+            (320, 320),
+            (321, 321),
+            (360, 640),
+            (640, 640),
+            (1920, 1080),
+        ] {
+            let mut buffer = std::vec![0; usize::from(w) * usize::from(h)];
+            let mut tab = Tabula::new(w, h, &mut buffer).unwrap();
+            for kappa in [-64, 0, 64] {
+                let painter = Pictor::new(&mut tab, kappa);
+                let (fw, fh) = (i32::from(w), i32::from(h));
+                for (x, y, rw, rh) in [
+                    (0, 0, fw / 2, fh / 2),
+                    (fw / 4, fh / 4, fw / 2, fh / 2),
+                    (fw / 2, fh / 2, fw / 2, fh / 2),
+                    (fw / 3, fh / 8, fw / 3, 12 * (fw.min(fh) / 180).max(1)),
+                ] {
+                    let [left, top, right, bottom] =
+                        painter.projected_bounds(x, y, rw, rh).unwrap();
+                    for column in x..x + rw {
+                        for row in y..y + rh {
+                            let (px, py, side) = painter.project(column, row);
+                            assert!(
+                                left <= px
+                                    && top <= py
+                                    && right >= px + side
+                                    && bottom >= py + side,
+                                "{w}x{h}, curvature {kappa}, rectangle {x},{y},{rw},{rh}, pixel {column},{row}"
+                            );
+                        }
                     }
                 }
             }
