@@ -2,9 +2,11 @@
 //! by every channel: tone, contrast, line weight, cadence, text register, curvature and the sound
 //! index. No channel reads the state directly to decide its form (REQ-L5-11).
 
+use crate::arbitrium::visible_annales;
 use crate::ephemeris::ephemeris;
 use crate::hospes::{Facultates, Indicia, Lingua, Regimen};
 use crate::mundus::Mundus;
+use crate::spatium::isqrt;
 use crate::verbum::Modus;
 
 pub use crate::arbitrium::Registrum;
@@ -41,7 +43,8 @@ pub struct Concentus {
     pub registrum: Registrum,
     /// Curvature applied to the frame.
     pub curvatura: i8,
-    /// Sound index: 255 light, 0 heavy (pitch falls with the burden).
+    /// Sound index: 2040 / isqrt(64 + onus), from 255 to 120; mass includes the boulder
+    /// (`docs/05-estetica.md` §10).
     pub sonus: u8,
     /// Language of the text.
     pub lingua: Lingua,
@@ -80,11 +83,15 @@ pub fn concentus(
     };
     let tranquillitas = u16::from(v.tranquillitas());
     let chroma = (63u16.saturating_sub(tranquillitas).wrapping_mul(64) / 63) as u8;
-    let contrastus = match indicia.energy {
-        179..=255 => 8,
-        77..=178 => 10,
-        39..=76 => 12,
-        _ => 15,
+    let contrastus = if v.modus() == Modus::Quies {
+        15
+    } else {
+        match indicia.energy {
+            179..=255 => 8,
+            77..=178 => 10,
+            39..=76 => 12,
+            _ => 15,
+        }
     };
     let linea = if v.tranquillitas() < 32 { 2 } else { 1 };
     let cadentia = if regimen.tick_ms >= 1000 {
@@ -94,19 +101,12 @@ pub fn concentus(
     } else {
         64
     };
-    let registrum = match m.eventus() {
-        12 | 14 => Registrum::Abstractum,
-        13 => Registrum::Vivum,
-        15 => Registrum::Epochale,
-        _ if m.ramus() == crate::memoria::RAMUS_EXSPECTANS => Registrum::Intimum,
-        _ => match m.gradus() {
-            0..=71 => Registrum::Intimum,
-            72..=143 => Registrum::Vivum,
-            144..=239 => Registrum::Civile,
-            240..=359 => Registrum::Epochale,
-            _ => Registrum::Abstractum,
-        },
+    let rows = if facultates.cells {
+        facultates.height
+    } else {
+        u16::MAX
     };
+    let registrum = visible_annales(m, facultates.lingua, indicia.leaving, regimen, rows).registrum;
     Concentus {
         tonus,
         chroma,
@@ -115,7 +115,9 @@ pub fn concentus(
         cadentia,
         registrum,
         curvatura: v.curvatura(),
-        sonus: 255u8.wrapping_sub(v.onus()),
+        sonus: 2040u32
+            .checked_div(isqrt(64u32.wrapping_add(u32::from(v.onus()))))
+            .unwrap_or(255) as u8,
         lingua: facultates.lingua,
         festum: eph.festum,
         nocturnal: eph.nocturnal,
@@ -402,9 +404,10 @@ mod tests {
         assert_eq!(at(&tired, NOON, &r), 64);
     }
 
-    /// The text register follows the age of the event (until the chronicle exists).
+    /// The register follows the effective last line, including the limits of the medium
+    /// (REQ-L4-04, REQ-L5-11).
     #[test]
-    fn registrum_by_gradus() {
+    fn registrum_by_annales() {
         let f = Facultates::default();
         let r = Regimen::default();
         let i = Indicia {
@@ -416,10 +419,100 @@ mod tests {
             m.memoria = m.memoria.with_gradus(gradus).with_ramus(0);
             concentus(&m, &f, &i, &r).registrum
         };
-        assert_eq!(at(0), Registrum::Intimum);
-        assert_eq!(at(100), Registrum::Vivum);
-        assert_eq!(at(200), Registrum::Civile);
-        assert_eq!(at(300), Registrum::Epochale);
-        assert_eq!(at(500), Registrum::Abstractum);
+        for (gradus, register) in [
+            (0, Registrum::Intimum),
+            (24, Registrum::Intimum),
+            (72, Registrum::Vivum),
+            (144, Registrum::Civile),
+            (240, Registrum::Epochale),
+            (360, Registrum::Abstractum),
+        ] {
+            assert_eq!(at(gradus), register);
+        }
+        for lingua in [Lingua::En, Lingua::Pt] {
+            for (eventus, expected) in [
+                (
+                    3,
+                    [Registrum::Intimum, Registrum::Vivum, Registrum::Abstractum],
+                ),
+                (11, [Registrum::Abstractum; 3]),
+                (
+                    12,
+                    [
+                        Registrum::Intimum,
+                        Registrum::Abstractum,
+                        Registrum::Abstractum,
+                    ],
+                ),
+                (13, [Registrum::Vivum; 3]),
+                (14, [Registrum::Abstractum; 3]),
+                (15, [Registrum::Epochale; 3]),
+            ] {
+                let f = Facultates { lingua, ..f };
+                let mut m = world(32, 24, Modus::Vigilia);
+                m.memoria = m
+                    .memoria
+                    .with_eventus(eventus)
+                    .with_ramus(1)
+                    .with_gradus(400);
+                for (lines, register) in [1, 2, 6].into_iter().zip(expected) {
+                    let r = Regimen { lines, ..r };
+                    assert_eq!(concentus(&m, &f, &i, &r).registrum, register);
+                    let off = Regimen { layers: 0, ..r };
+                    assert_eq!(concentus(&m, &f, &i, &off).registrum, Registrum::Intimum);
+                }
+                let f = Facultates {
+                    cells: true,
+                    height: 1,
+                    ..f
+                };
+                assert_eq!(concentus(&m, &f, &i, &r).registrum, expected[0]);
+            }
+        }
+        let mut m = world(32, 24, Modus::Vigilia);
+        m.memoria = m.memoria.with_eventus(12).with_gradus(30);
+        assert_eq!(concentus(&m, &f, &i, &r).registrum, Registrum::Intimum);
+        m.memoria = m.memoria.with_gradus(80);
+        assert_eq!(concentus(&m, &f, &i, &r).registrum, Registrum::Abstractum);
+        m.memoria = m.memoria.with_eventus(3).with_ramus(3);
+        let leave = Indicia { leaving: true, ..i };
+        assert_eq!(
+            concentus(&m, &f, &leave, &r).registrum,
+            crate::arbitrium::annales(m.memoria, f.lingua, true).registrum
+        );
+    }
+
+    /// The sound index falls with the integer square root of onus + 64
+    /// (`docs/05-estetica.md` §10).
+    #[test]
+    fn sonus_by_mass() {
+        let at = |onus| {
+            concentus(
+                &world(onus, 24, Modus::Vigilia),
+                &Facultates::default(),
+                &Indicia::default(),
+                &Regimen::default(),
+            )
+            .sonus
+        };
+        assert_eq!(at(0), 255);
+        assert_eq!(at(255), 120);
+        for onus in 1..=255 {
+            assert!(at(onus) <= at(onus - 1));
+            assert_eq!(
+                u32::from(at(onus)),
+                2040 / crate::spatium::isqrt(64 + u32::from(onus))
+            );
+        }
+        assert_eq!(
+            concentus(
+                &world(32, 24, Modus::Quies),
+                &Facultates::default(),
+                &Indicia::default(),
+                &Regimen::default()
+            )
+            .contrastus,
+            15
+        );
     }
 }

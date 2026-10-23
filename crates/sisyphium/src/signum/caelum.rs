@@ -2,10 +2,208 @@
 //! by its phase and the ray of a rare event (REQ-L5-07, REQ-L5-08, REQ-L6-03).
 
 use crate::natura::mix;
+use crate::sensus::quadrant_of;
 use crate::signum::margo::harmony;
 use crate::signum::pixel::LABEL_NONE;
 use crate::signum::raster::{Modo, Pictor, bayer};
 use crate::spatium::{Compositio, Rect, isqrt, part, scatter64};
+
+/// Negative-space masks, row first, bit 15 at column 0 (REQ-L5-10): hourglass, eye and balance.
+/// Each row is the sixteen-cell silhouette specified in `docs/03-especificacao.md` REQ-L5-10.
+pub const MASKS: [[u16; 16]; 3] = [
+    [
+        0x3FFC, 0x3FFC, 0x1FF8, 0x0FF0, 0x07E0, 0x03C0, 0x0180, 0x0180, 0x0180, 0x0180, 0x03C0,
+        0x07E0, 0x0FF0, 0x1FF8, 0x3FFC, 0x3FFC,
+    ],
+    [
+        0x0000, 0x0000, 0x0000, 0x03C0, 0x1FF8, 0x7FFE, 0xFC3F, 0xF81F, 0xF81F, 0xFC3F, 0x7FFE,
+        0x1FF8, 0x03C0, 0x0000, 0x0000, 0x0000,
+    ],
+    [
+        0x0180, 0x7FFE, 0x4182, 0x4182, 0xA185, 0xA185, 0xE187, 0x0180, 0x0180, 0x0180, 0x0180,
+        0x0180, 0x0180, 0x0180, 0x07E0, 0x0FF0,
+    ],
+];
+
+/// Whether a mask cell is full; cells outside the sixteen-cell grid are empty (REQ-L5-10).
+fn filled(mask: &[u16; 16], x: i32, y: i32) -> bool {
+    if !(0..16).contains(&x) || !(0..16).contains(&y) {
+        return false;
+    }
+    mask.get(y as usize)
+        .is_some_and(|row| row & (0x8000u16 >> x as u32) != 0)
+}
+
+/// A contour cell is full and has an empty four-neighbour, including outside the grid
+/// (REQ-L5-10).
+fn contour(mask: &[u16; 16], x: i32, y: i32) -> bool {
+    filled(mask, x, y)
+        && [
+            (x.wrapping_sub(1), y),
+            (x.wrapping_add(1), y),
+            (x, y.wrapping_sub(1)),
+            (x, y.wrapping_add(1)),
+        ]
+        .into_iter()
+        .any(|(a, b)| !filled(mask, a, b))
+}
+
+/// Snaps a point to the centre of the nearest contour cell in `square` by Manhattan distance;
+/// ties choose the smallest row-major index (REQ-L5-10). A zero side becomes one; an empty
+/// mask leaves the point in place.
+#[must_use]
+pub fn snap(p: (i32, i32), square: Rect, mask: &[u16; 16]) -> (i32, i32) {
+    let side = i64::from(square.w.min(square.h).max(1));
+    let u = (i64::from(p.0)
+        .wrapping_sub(i64::from(square.x))
+        .wrapping_mul(16)
+        .checked_div(side)
+        .unwrap_or(0))
+    .clamp(0, 15) as i32;
+    let v = (i64::from(p.1)
+        .wrapping_sub(i64::from(square.y))
+        .wrapping_mul(16)
+        .checked_div(side)
+        .unwrap_or(0))
+    .clamp(0, 15) as i32;
+    let mut best = u32::MAX;
+    let mut result = p;
+    for y in 0i32..16 {
+        for x in 0i32..16 {
+            if contour(mask, x, y) {
+                let distance = x
+                    .wrapping_sub(u)
+                    .unsigned_abs()
+                    .saturating_add(y.wrapping_sub(v).unsigned_abs());
+                if distance < best {
+                    best = distance;
+                    result = (
+                        i64::from(square.x).wrapping_add(
+                            i64::from(x.wrapping_mul(2).wrapping_add(1)).wrapping_mul(side) / 32,
+                        ) as i32,
+                        i64::from(square.y).wrapping_add(
+                            i64::from(y.wrapping_mul(2).wrapping_add(1)).wrapping_mul(side) / 32,
+                        ) as i32,
+                    );
+                }
+            }
+        }
+    }
+    result
+}
+
+/// The event's quadrant, with the odd right and bottom remainders left outside its equal
+/// halves (REQ-L6-04).
+fn quadrant(sky: Rect, eventus: u8) -> Rect {
+    let q = quadrant_of(eventus);
+    Rect {
+        x: sky
+            .x
+            .saturating_add(u16::from(q & 1).saturating_mul(sky.w / 2)),
+        y: sky
+            .y
+            .saturating_add(u16::from(q >> 1).saturating_mul(sky.h / 2)),
+        w: sky.w / 2,
+        h: sky.h / 2,
+    }
+}
+
+/// Node `i` scattered from the event, branch and line in the event quadrant (REQ-L5-06,
+/// REQ-L6-04). Above burden 200 it snaps to the event mask in the centred square whose side
+/// is max(1, min(quadrant width, quadrant height)) (REQ-L5-10).
+#[must_use]
+pub fn node(sky: Rect, eventus: u8, ramus: u8, i: u8, onus: u8) -> (i32, i32) {
+    let q = quadrant(sky, eventus);
+    let key = mix(u64::from(eventus) | (u64::from(ramus) << 8) | (u64::from(i) << 16));
+    let p = (
+        i32::from(q.x).wrapping_add((scatter64(key, 16).wrapping_mul(u64::from(q.w)) >> 16) as i32),
+        i32::from(q.y)
+            .wrapping_add((scatter64(key >> 32, 16).wrapping_mul(u64::from(q.h)) >> 16) as i32),
+    );
+    if onus <= 200 {
+        return p;
+    }
+    let side = q.w.min(q.h).max(1);
+    let square = Rect {
+        x: q.x.saturating_add(q.w.saturating_sub(side) / 2),
+        y: q.y.saturating_add(q.h.saturating_sub(side) / 2),
+        w: side,
+        h: side,
+    };
+    MASKS
+        .get(usize::from(eventus % 3))
+        .map_or(p, |mask| snap(p, square, mask))
+}
+
+/// Draws the graph in stratum 2 (REQ-L5-06): first node to trunk, then a chain for branch 0,
+/// a bifurcation to node i−2 for branch 1, or a chain with two rotated half-length twigs for
+/// branch 2. Edges precede the 2s-square nodes. Returns the first node, or none with no lines;
+/// no more than the five chronicle lines are drawn.
+#[allow(clippy::too_many_arguments)]
+pub fn graph(
+    pictor: &mut Pictor,
+    sky: Rect,
+    trunk: (i32, i32),
+    eventus: u8,
+    ramus: u8,
+    shown: u8,
+    onus: u8,
+    s: u16,
+    lum_edge: u8,
+    lum_node: u8,
+) -> Option<(i32, i32)> {
+    let shown = shown.min(5);
+    if shown == 0 {
+        return None;
+    }
+    let scale = s.max(1);
+    let thickness = scale.min(u16::from(u8::MAX)) as u8;
+    let at = |i| node(sky, eventus, ramus, i, onus);
+    for i in 0..shown {
+        let p = at(i);
+        let parent = if i == 0 {
+            trunk
+        } else if ramus == 1 {
+            at(i.saturating_sub(2))
+        } else {
+            at(i.saturating_sub(1))
+        };
+        pictor.line(
+            p.0,
+            p.1,
+            parent.0,
+            parent.1,
+            lum_edge,
+            2,
+            thickness,
+            Modo::Super,
+        );
+        if ramus == 2 && i > 0 {
+            let (dx, dy) = (p.0.wrapping_sub(parent.0), p.1.wrapping_sub(parent.1));
+            for (x, y) in [
+                (dx.wrapping_sub(dy) / 2, dx.wrapping_add(dy) / 2),
+                (dx.wrapping_add(dy) / 2, dy.wrapping_sub(dx) / 2),
+            ] {
+                pictor.line(
+                    p.0,
+                    p.1,
+                    p.0.wrapping_add(x),
+                    p.1.wrapping_add(y),
+                    lum_edge,
+                    2,
+                    thickness,
+                    Modo::Super,
+                );
+            }
+        }
+    }
+    let side = i32::from(scale).wrapping_mul(2);
+    for i in 0..shown {
+        let p = at(i);
+        pictor.fill(p.0, p.1, side, side, lum_node, 2, false);
+    }
+    Some(at(0))
+}
 
 /// The region of the sky under the harmony of the burden (REQ-L5-12): the sky of the
 /// composition while `onus` ≤ 200; above, its right edge is ⌊`width`·harmony(`onus`)⌋ in place of
@@ -147,6 +345,198 @@ mod tests {
     use crate::signum::pixel::{VOID, lum_of};
     use crate::signum::raster::Pictor;
     use crate::spatium::Rect;
+
+    /// Each revealed line has one deterministic node in the event quadrant; bifurcation
+    /// connects the third node to the first (REQ-L5-06, REQ-L6-04).
+    #[test]
+    fn sky_graph_nodes() {
+        let sky = crate::spatium::compositio(320, 180, 6).sky;
+        for eventus in 0..8 {
+            let q = crate::sensus::quadrant_of(eventus);
+            let (x, y) = (
+                sky.x + u16::from(q & 1) * (sky.w / 2),
+                sky.y + u16::from(q >> 1) * (sky.h / 2),
+            );
+            for ramus in 0..3 {
+                for i in 0..5 {
+                    let p = node(sky, eventus, ramus, i, 0);
+                    assert_eq!(p, node(sky, eventus, ramus, i, 200));
+                    assert!((i32::from(x)..i32::from(x + sky.w / 2)).contains(&p.0));
+                    assert!((i32::from(y)..i32::from(y + sky.h / 2)).contains(&p.1));
+                }
+                for shown in 0..=5 {
+                    let mut buf = [VOID; 320 * 180];
+                    let mut tab = Tabula::new(320, 180, &mut buf).unwrap();
+                    let result = graph(
+                        &mut Pictor::flat(&mut tab),
+                        sky,
+                        (16, 34),
+                        eventus,
+                        ramus,
+                        shown,
+                        0,
+                        1,
+                        9,
+                        14,
+                    );
+                    assert_eq!(result, (shown > 0).then(|| node(sky, eventus, ramus, 0, 0)));
+                    if shown == 0 {
+                        assert!(buf.iter().all(|&p| p == VOID));
+                    }
+                    for (at, _) in buf.iter().enumerate().filter(|(_, p)| lum_of(**p) == 14) {
+                        let p = ((at % 320) as i32, (at / 320) as i32);
+                        assert!((0..shown).any(|i| {
+                            let position = node(sky, eventus, ramus, i, 0);
+                            (p.0 - position.0).unsigned_abs() <= 1
+                                && (p.1 - position.1).unsigned_abs() <= 1
+                        }));
+                    }
+                }
+            }
+        }
+        assert_eq!(node(sky, 0, 2, 0, 0), (59, 16));
+        for ramus in 0..3 {
+            for shown in 1..=5 {
+                let mut actual = [VOID; 320 * 180];
+                let mut expected = actual;
+                let mut tab = Tabula::new(320, 180, &mut actual).unwrap();
+                let _ = graph(
+                    &mut Pictor::flat(&mut tab),
+                    sky,
+                    (16, 34),
+                    3,
+                    ramus,
+                    shown,
+                    0,
+                    1,
+                    9,
+                    14,
+                );
+                let mut tab = Tabula::new(320, 180, &mut expected).unwrap();
+                let mut painter = Pictor::flat(&mut tab);
+                let nodes: std::vec::Vec<_> =
+                    (0..shown).map(|i| node(sky, 3, ramus, i, 0)).collect();
+                for (i, &point) in nodes.iter().enumerate() {
+                    let parent = if i == 0 {
+                        (16, 34)
+                    } else {
+                        nodes[if ramus == 1 {
+                            i.saturating_sub(2)
+                        } else {
+                            i - 1
+                        }]
+                    };
+                    painter.line(point.0, point.1, parent.0, parent.1, 9, 2, 1, Modo::Super);
+                    if ramus == 2 && i > 0 {
+                        let dx = point.0 - parent.0;
+                        let dy = point.1 - parent.1;
+                        for end in [
+                            (point.0 + (dx - dy) / 2, point.1 + (dx + dy) / 2),
+                            (point.0 + (dx + dy) / 2, point.1 + (dy - dx) / 2),
+                        ] {
+                            painter.line(point.0, point.1, end.0, end.1, 9, 2, 1, Modo::Super);
+                        }
+                    }
+                }
+                for (x, y) in nodes {
+                    painter.fill(x, y, 2, 2, 14, 2, false);
+                }
+                assert_eq!(actual, expected, "branch {ramus}, shown {shown}");
+            }
+        }
+    }
+
+    /// The sixteen rows of each silhouette match the canonical mask specification
+    /// (REQ-L5-10), with the most significant bit at the left edge.
+    #[test]
+    fn mask_rows() {
+        let rows = [
+            "3FFC 3FFC 1FF8 0FF0 07E0 03C0 0180 0180 0180 0180 03C0 07E0 0FF0 1FF8 3FFC 3FFC",
+            "0000 0000 0000 03C0 1FF8 7FFE FC3F F81F F81F FC3F 7FFE 1FF8 03C0 0000 0000 0000",
+            "0180 7FFE 4182 4182 A185 A185 E187 0180 0180 0180 0180 0180 0180 0180 07E0 0FF0",
+        ];
+        for (mask, text) in MASKS.into_iter().zip(rows) {
+            let expected: std::vec::Vec<_> = text
+                .split_whitespace()
+                .map(|row| u16::from_str_radix(row, 16).unwrap())
+                .collect();
+            assert_eq!(mask.as_slice(), expected);
+        }
+    }
+
+    /// A heavy node snaps to the nearest four-neighbour contour cell, ties in row order;
+    /// a contour centre stays fixed (REQ-L5-10).
+    #[test]
+    fn negative_space_mask_snap() {
+        let square = Rect {
+            x: 16,
+            y: 8,
+            w: 160,
+            h: 160,
+        };
+        for mask in MASKS {
+            let filled = |x: i32, y: i32| {
+                (0..16).contains(&x)
+                    && (0..16).contains(&y)
+                    && mask[y as usize] & (1 << (15 - x)) != 0
+            };
+            let boundary = |x: i32, y: i32| {
+                filled(x, y)
+                    && [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+                        .into_iter()
+                        .any(|(a, b)| !filled(a, b))
+            };
+            for i in 0..64 {
+                let key = mix(i);
+                let p = ((key & 255) as i32 - 20, ((key >> 32) & 255) as i32 - 20);
+                let u = ((p.0 - 16) * 16 / 160).clamp(0, 15);
+                let v = ((p.1 - 8) * 16 / 160).clamp(0, 15);
+                let best = (0..256)
+                    .filter(|k| boundary(k % 16, k / 16))
+                    .min_by_key(|k| {
+                        (
+                            (k % 16 - u).unsigned_abs() + (k / 16 - v).unsigned_abs(),
+                            *k,
+                        )
+                    })
+                    .unwrap();
+                let expected = (
+                    16 + (2 * (best % 16) + 1) * 5,
+                    8 + (2 * (best / 16) + 1) * 5,
+                );
+                assert_eq!(snap(p, square, &mask), expected);
+                assert_eq!(snap(expected, square, &mask), expected);
+            }
+        }
+        assert_eq!(MASKS[0][0], 0x3FFC);
+        assert_eq!(MASKS[1][7], 0xF81F);
+        assert_eq!(MASKS[2][15], 0x0FF0);
+        let sky = Rect {
+            x: 16,
+            y: 8,
+            w: 640,
+            h: 640,
+        };
+        for eventus in 0..8 {
+            let q = crate::sensus::quadrant_of(eventus);
+            let square = Rect {
+                x: 16 + u16::from(q & 1) * 320,
+                y: 8 + u16::from(q >> 1) * 320,
+                w: 320,
+                h: 320,
+            };
+            for i in 0..5 {
+                assert_eq!(
+                    node(sky, eventus, 2, i, 201),
+                    snap(
+                        node(sky, eventus, 2, i, 200),
+                        square,
+                        &MASKS[usize::from(eventus % 3)]
+                    )
+                );
+            }
+        }
+    }
 
     /// Six lines from the six bits, bit 0 at the bottom; 1 = unbroken (REQ-L5-07).
     #[test]
