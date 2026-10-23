@@ -15,8 +15,10 @@ plataformas.
 Uma camada única, `consilium`, escolhe o `Regimen` por busca satisfatória com recozimento
 simulado sobre uma função de valor semiótico sujeita a um orçamento derivado de energia e
 computação, com forçamentos narrativos explícitos. A busca é determinística e usa o gerador de
-Galois do próprio estado. O hospedeiro reavalia apenas quando a faixa de energia, as facultates ou
-o modus mudam.
+Galois do próprio estado. O hospedeiro reavalia quando mudam as facultates, a faixa de energia,
+o modus, o orçamento calculado ou a chave semântica de REQ-C-05. Ele compara essas condições a
+cada medida e após a evolução do mundo; a busca ocorre nas transições, sem execução
+incondicional em todo tick.
 
 ## Consequências
 
@@ -24,3 +26,5 @@ o modus mudam.
 - As tabelas de custo derivam de medições registradas no PR do checkpoint 4 e são a única parte
   do consilium que muda com novas medições.
 - A mesma situação produz a mesma forma em hospedeiros com as mesmas facultates.
+- Uma mudança de orçamento dentro da mesma faixa ou de condição narrativa pode renovar o
+  regimen; a comparação das condições é distinta da execução da busca.

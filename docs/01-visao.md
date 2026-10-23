@@ -8,7 +8,7 @@
 | --- | --- |
 | Moral | A obra NÃO DEVE agir contra o interesse do observador. Nenhum mecanismo de percepção (surpresa, tensão de Zeigarnik, eventos raros) DEVE aumentar o uso do aparelho. A obra recompensa a calma: a ausência de interação estabiliza o mundo. |
 | Ético | Nenhum padrão de captura: sem notificações, sem pedidos de interação, sem contadores, sem progresso exibido, sem escassez artificial com finalidade de retenção. A obra não se beneficia da atenção. |
-| Legal | Direitos autorais e de programa de computador (Lei nº 9.610/1998; Lei nº 9.609/1998). Dados pessoais (Lei nº 13.709/2018): nenhum dado sai do aparelho; nenhum dado é armazenado além de 128 bits de estado; a interação é reduzida a medidas de entropia no hospedeiro e descartada. Nenhum ativo de terceiros. |
+| Legal | Direitos autorais e de programa de computador (Lei nº 9.610/1998; Lei nº 9.609/1998). Dados pessoais (Lei nº 13.709/2018): nenhum dado sai do aparelho; o único conteúdo persistido do mundo é o texto de 32 dígitos hexadecimais que representa os 128 bits de estado; a data de modificação desse arquivo é medida externa do meio (REQ-H-06); a interação é reduzida a medidas de entropia no hospedeiro e descartada. Nenhum ativo de terceiros. |
 | Produtos e marcas | Nenhum nome de produto, marca, motor, loja, rede ou serviço no núcleo, nos textos da obra, nos ativos e nos artefatos. Na documentação e nos scripts de hospedeiros, nomes de sistemas operacionais e de utilitários do sistema aparecem apenas como instrução técnica indispensável. Nenhuma recompensa hedônica, nenhuma monetização, nenhum elemento de jogo com pontuação. |
 
 ## 2. Intenção
