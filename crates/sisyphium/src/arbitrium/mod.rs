@@ -790,18 +790,54 @@ mod tests {
     }
 
     /// Personal and possessive pronouns, clitics included, that no English line may contain.
-    const PRONOUNS_EN: [&str; 31] = [
-        "I", "ME", "MY", "MINE", "MYSELF", "YOU", "YOUR", "YOURS", "HE", "HIM", "HIS", "SHE",
-        "HER", "HERS", "IT", "ITS", "WE", "US", "OUR", "OURS", "THEY", "THEM", "THEIR", "THEIRS",
-        "WHO", "WHOM", "WHOSE", "SOMEONE", "ANYONE", "EVERYONE", "NOBODY",
+    const PRONOUNS_EN: [&str; 38] = [
+        "I",
+        "ME",
+        "MY",
+        "MINE",
+        "MYSELF",
+        "YOU",
+        "YOUR",
+        "YOURS",
+        "HE",
+        "HIM",
+        "HIS",
+        "SHE",
+        "HER",
+        "HERS",
+        "IT",
+        "ITS",
+        "WE",
+        "US",
+        "OUR",
+        "OURS",
+        "THEY",
+        "THEM",
+        "THEIR",
+        "THEIRS",
+        "WHO",
+        "WHOM",
+        "WHOSE",
+        "SOMEONE",
+        "ANYONE",
+        "EVERYONE",
+        "NOBODY",
+        "YOURSELF",
+        "YOURSELVES",
+        "HIMSELF",
+        "HERSELF",
+        "ITSELF",
+        "OURSELVES",
+        "THEMSELVES",
     ];
 
     /// Personal and possessive pronouns, clitics included, that no Portuguese line may contain.
-    const PRONOUNS_PT: [&str; 37] = [
+    const PRONOUNS_PT: [&str; 51] = [
         "EU", "MIM", "COMIGO", "TU", "TI", "CONTIGO", "VOCÊ", "VOCÊS", "ELE", "ELA", "ELES",
         "ELAS", "NÓS", "VÓS", "ME", "TE", "SE", "LHE", "LHES", "VOS", "MEU", "MINHA", "MEUS",
         "MINHAS", "TEU", "TUA", "SEU", "SUA", "SEUS", "SUAS", "NOSSO", "NOSSA", "DELE", "DELA",
-        "QUEM", "NINGUÉM", "ALGUÉM",
+        "QUEM", "NINGUÉM", "ALGUÉM", "CONOSCO", "CONVOSCO", "CONSIGO", "SI", "TEUS", "TUAS",
+        "NOSSOS", "NOSSAS", "VOSSO", "VOSSA", "VOSSOS", "VOSSAS", "DELES", "DELAS",
     ];
 
     /// A memory that holds only the event, the branch and the age of the event.
@@ -1131,18 +1167,62 @@ mod tests {
         }
     }
 
+    /// The first forbidden personal or possessive token of a line (`docs/07-narrativa.md` §3).
+    fn first_pronoun<'a>(text: &'a str, banned: &[&str]) -> Option<&'a str> {
+        const MARKS: [char; 9] = ['.', ',', ';', ':', '!', '?', '"', '(', ')'];
+        text.split(|c: char| c.is_whitespace() || matches!(c, '-' | '\'' | '’'))
+            .map(|w| w.trim_matches(MARKS))
+            .find(|word| banned.contains(word))
+    }
+
+    /// Personal tokens remain forbidden in contractions and plural or reflexive forms;
+    /// articles, numerals and possessive nouns remain admissible (`docs/07-narrativa.md` §3).
+    #[test]
+    fn pronoun_verifier_handles_contractions_and_inflections() {
+        for text in [
+            "YOURSELF",
+            "YOURSELVES",
+            "HIMSELF",
+            "HERSELF",
+            "ITSELF",
+            "OURSELVES",
+            "THEMSELVES",
+            "I'M",
+            "YOU’RE",
+            "IT'S",
+        ] {
+            assert!(first_pronoun(text, &PRONOUNS_EN).is_some(), "{text}");
+        }
+        for text in [
+            "CONOSCO", "CONVOSCO", "CONSIGO", "SI", "TEUS", "TUAS", "NOSSOS", "NOSSAS", "VOSSO",
+            "VOSSA", "VOSSOS", "VOSSAS", "DELES", "DELAS",
+        ] {
+            assert!(first_pronoun(text, &PRONOUNS_PT).is_some(), "{text}");
+        }
+        for text in ["A STONE", "ONE STONE", "TWO STONES", "THE ROCK'S SHADE"] {
+            assert_eq!(first_pronoun(text, &PRONOUNS_EN), None, "{text}");
+        }
+        for text in [
+            "A PEDRA",
+            "O SEIXO",
+            "AS PEDRAS",
+            "OS SEIXOS",
+            "UM SEIXO",
+            "D’ÁGUA",
+        ] {
+            assert_eq!(first_pronoun(text, &PRONOUNS_PT), None, "{text}");
+        }
+    }
+
     /// No personal or possessive pronoun, clitics included (`docs/07-narrativa.md` §3).
     #[test]
     fn annales_impersonal() {
-        const MARKS: [char; 9] = ['.', ',', ';', ':', '!', '?', '"', '(', ')'];
         for (texts, banned) in [
             (texts!(annales_en), PRONOUNS_EN.as_slice()),
             (texts!(annales_pt), PRONOUNS_PT.as_slice()),
         ] {
             for text in texts {
-                for word in text.split([' ', '-']).map(|w| w.trim_matches(MARKS)) {
-                    assert!(!banned.contains(&word), "{word} in {text}");
-                }
+                assert_eq!(first_pronoun(text, banned), None, "{text}");
             }
         }
     }

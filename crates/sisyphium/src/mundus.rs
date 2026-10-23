@@ -1,7 +1,9 @@
 //! `mundus`: the world as the pair of state words, its genesis, its persistence as 32
 //! hexadecimal digits (REQ-L0-03, REQ-L0-04) and its tick (REQ-L0-05, REQ-H-06). The tick
-//! applies the laws of `arbitrium`, `sensus` and `transumptio` in one fixed order,
-//! `docs/04-arquitetura.md` §7.1; the module contains no law of its own, it orders them.
+//! composes the laws of `arbitrium`, `sensus`, `transumptio`, `corpus` and `natura` with the
+//! ephemeris in the fixed order of `docs/04-arquitetura.md` §7.1. It closes the cycle at the
+//! summit, holds the pace during contemplation and increments `ascensus` when the pace opens
+//! (REQ-L4-05, REQ-L4-07).
 
 use crate::arbitrium::{
     closure, contemplating, continuous, curvature, event, interrupt, modus_law, paces,
@@ -646,7 +648,7 @@ mod tests {
         }
     }
 
-    /// Epochs saturate at the ends of time (review focus 1).
+    /// Epochs saturate at the ends of time (REQ-H-06).
     #[test]
     fn advance_saturates_epoch() {
         let f = Facultates::default();
@@ -666,7 +668,7 @@ mod tests {
     }
 
     /// The summit rests one tick, then the cycle closes; a touch wakes the dreamer; Quies holds
-    /// the figure still (D2, D7, D8).
+    /// the figure still (REQ-L4-05, REQ-L4-07, REQ-L7-03; `docs/04-arquitetura.md` §7.1).
     #[test]
     fn step_order() {
         let f = Facultates::default();
@@ -982,7 +984,7 @@ mod tests {
 
     /// A touch that the trap has predicted wakes a dreamer without a metalepsis, and arms the
     /// affirmation in a waking world: the touch law meets the mode that the tick found, and the
-    /// law of the mode meets the touch (D2, D8; REQ-L7-03, REQ-L4-10).
+    /// law of the mode meets the touch (REQ-L7-03, REQ-L4-10; `docs/04-arquitetura.md` §7.1).
     #[test]
     fn touch_wakes_the_dreamer_without_metalepsis() {
         let f = Facultates::default();
@@ -1176,7 +1178,7 @@ mod tests {
 
     /// The cycle closes at the summit and not before: a world at 254 that takes no step stays
     /// there, one at 255 closes, and one that takes the last step rests a tick at 255, in sight,
-    /// and closes in the next tick (D2; REQ-L4-07).
+    /// and closes in the next tick (REQ-L4-07; `docs/04-arquitetura.md` §7.1).
     #[test]
     fn cycle_closes_a_tick_after_the_summit() {
         let f = Facultates::default();

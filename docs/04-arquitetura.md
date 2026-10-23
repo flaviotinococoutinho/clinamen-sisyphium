@@ -209,8 +209,9 @@ buffer de pixels estático dimensionado pelo hospedeiro.
 ### 7.1 Ordem do tick
 
 `step(&facultates, &indicia)` aplica as leis na ordem abaixo, com
-`eph` = `ephemeris(epoch_ms, tz_offset_min, australis)`. `mundus` não contém lei própria: cada
-etapa chama a lei de um módulo, e a ordem é tudo o que `mundus` acrescenta.
+`eph` = `ephemeris(epoch_ms, tz_offset_min, australis)`. `mundus` compõe as leis dos módulos
+nessa ordem. A composição também aplica a guarda do fecho no cume, retém o passo em
+contemplação e incrementa `ascensus` quando a porta do passo abre (REQ-L4-05, REQ-L4-07).
 
 | # | Etapa | Condição | Anúncio | Requisito |
 | --- | --- | --- | --- | --- |
@@ -242,9 +243,10 @@ anúncios dos seus ticks. As razões da ordem:
 - O modus precede o passo: a contemplação (Quies; sono após a agnitio) retém o passo no mesmo
   tick.
 - O passo precede as leis contínuas: o `conatus` se gasta no tick do passo (REQ-L4-06).
-- A curvatura segue o evento: a visita de Heráclito soma +8 à `curvatura` dentro do evento, e a
-  dinâmica da curvatura limita o resultado a −64..=64 (REQ-L4-11). Um mundo em +57..=+64 não
-  sai do tick acima de +64.
+- A curvatura segue o evento: a visita de Heráclito soma +8 à `curvatura` dentro do evento.
+  A dinâmica final reescala a soma em Vigilia e Quies por 3/4 em direção a 0, truncado, e
+  limita o resultado a −64..=64 (REQ-L4-11). Assim, uma visita em Vigilia com curvatura 0
+  deixa +6 ao fim do tick; uma curvatura inicial em +57..=+64 não sai do tick acima de +64.
 - A porta rara fecha o tick: lê a `clausurae` e o `eventus` que o tick deixa.
 
 `step` lê `Facultates` somente para a efeméride (`tz_offset_min`, `australis`) e não lê

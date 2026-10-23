@@ -10,8 +10,9 @@
 //! `tranquillitas`, `ramus`, `eventus` and `clausurae`; the cost reads the dimensions of the host.
 //! The forcings of REQ-C-04 bound the dimensions before any score. The search draws every
 //! proposal from the Galois generator ([`galois`]) started at the `semen` of the world, so the
-//! same host, world and energy give the same regimen (REQ-C-03). The host calls it when the band
-//! of energy, the capabilities or the mode change, and not at every tick (REQ-C-05).
+//! same host, world and energy give the same regimen (REQ-C-03). After each measurement and
+//! evolution of the world, the host compares the reevaluation conditions of REQ-C-05, including
+//! the budget and the semantic key, and reruns the search when a condition changes.
 
 use crate::hospes::{
     ANNALES, CAELUM, Facultates, HEXAGRAMMA, IMPOSSIBILIA, LAYERS_ALL, MARGO, PERSONAE, PUNCTA,
