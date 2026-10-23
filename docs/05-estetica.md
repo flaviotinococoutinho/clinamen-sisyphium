@@ -26,14 +26,17 @@ _kintsugi_).
 | Bicolor | Um bit por pixel pela matriz de Bayer 4×4; tom ≤ 1 → 0 e tom ≥ 13 → 15, pontilhado entre eles | Quies; painéis de 1 bit; `color_bits` = 1 | O mundo em repouso: presença e ausência |
 
 Tom e classe de estrato de cada elemento no quadro de giz, base dos demais stili (REQ-L5-03). As
-linhas de Bresenham e os glifos ficam em 7..=15 (figura 15, crônicas 13, `Verbum` 10, moldura 9,
-hexagrama 8, ruínas 7), com a exceção da sombra, em 2; pontos, preenchimentos e a rocha seguem a
-tabela.
+linhas e os glifos usam o tom do elemento, conforme a tabela. Encosta, crista e ruínas
+respeitam adicionalmente o teto 15−`contrastus`, inclusive quando traçadas por colunas
+sólidas; a sombra usa tom 2.
 
 | Elemento | Tom | Classe | Traçado |
 | --- | --- | --- | --- |
 | Ardósia | 1 | 3 | fundo |
 | Estrelas da constelação | 6 | 2 | pontos |
+| Arestas do grafo | 9 | 2 | linhas de s px |
+| Nós do grafo | 14 | 2 | quadrados de 2s×2s |
+| Aforismo | 12 sobre ardósia 1 | 2 | células 6×10·s, respiro s; âncora ajustada apenas para preservar hexagrama, lua e contenção no quadro (REQ-L5-06) |
 | Hexagrama | 8 | 2 | linhas de s px |
 | Lua | 12, pontilhada em 9 | 2 | disco menos o disco de sombra |
 | Encosta | 3..=6, do estrato mais distante ao mais próximo | 1 no mais distante com 2 ou mais estratos; 2 nos demais | pontilhado (camada de pontilhado) ou colunas sólidas |
@@ -119,17 +122,20 @@ qualquer desenho e lido por todos os canais. Nenhum canal decide sozinho.
 | Canal | Campo do concentus | Derivação |
 | --- | --- | --- |
 | Tom | `tonus` 0..=15 e paleta | `onus`, `tranquillitas`, `modus`, `festum` (REQ-L5-02) |
-| Contraste | `contrastus` 8..=15 (diferença mínima figura–fundo) | energia (menor energia, maior contraste), `modus` Quies = 15 |
+| Contraste | `contrastus` 8..=15; tom de cada traço da encosta e das ruínas ≤ 15−`contrastus` | energia 179..=255 → 8; 77..=178 → 10; 39..=76 → 12; 0..=38 → 15; Quies força 15 |
 | Delimitação | `linea` ∈ {s, 2s} e rótulo de aresta padrão | `tranquillitas` (REQ-L5-05); impossibilia por condição |
 | Cadência | `cadentia`: cadência base em passos/min (64, 48 ou 0) | regimen (`tick_ms`); `conatus` |
-| Registro do texto | `registrum` ∈ {íntimo, vivo, civil, epocal, abstrato} | linha da crônica revelada; persona; agnitio |
+| Registro do texto | `registrum` ∈ {íntimo, vivo, civil, epocal, abstrato} | última linha do prefixo efetivo de `annales`, limitado por ANNALES, `regimen.lines` e, em células, `rows`; Intimum sem linhas |
 | Curvatura | `curvatura` aplicada | `curvatura` do `Verbum` e `modus` |
-| Som (índice; sem síntese na 0.1) | `sonus`: altura ∝ 1/√massa, ressonância ∝ massa, respiração 60..=70/min, clique por linha | massa = `onus` + rocha; cadência; crônicas |
+| Som (índice; sem síntese na 0.1) | `sonus` = ⌊2040/`isqrt(64+onus)`⌋: 255 com `onus` 0, 120 com `onus` 255, não crescente | massa = `onus` + 64 (rocha); 2040 = 255·√64; divisão inteira pela raiz inteira inferior |
 | Línguas | `lingua` e forma dos aforismos (□, ◊) | `Facultates.lingua`; nó de ramificação |
 
-O concentus é o mesmo para todos os stili na mesma situação: um quadro em Littera e um quadro
+O concentus é o mesmo para todos os stili sob as mesmas capacidades e situação: um quadro em Littera e um quadro
 em Creta do mesmo instante têm o mesmo tom, o mesmo contraste, o mesmo registro e o mesmo índice
-sonoro. A sinergia da obra é verificável nesse ponto.
+sonoro. Na saída em células, a grade real normaliza as capacidades antes do cálculo: uma
+grade com menos linhas pode mudar o registro porque mostra um prefixo menor. O contraste
+é aplicado ao fundo antes das conversões de stilus; em Bicolor, o limiar de Bayer preserva
+o fundo preto de Quies.
 
 ## 11. Proibições
 

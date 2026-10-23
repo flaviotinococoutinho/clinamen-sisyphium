@@ -139,17 +139,41 @@ RGB por `palette(&concentus)`. Célula `u16`: bits 0..=7 glifo; 8..=11 tom; 12..
 estrato. Índice de glifo: 0..=69, a posição em `ORDO`; 70..=81, as maiúsculas acentuadas
 ÁÀÂÃÉÊÍÓÔÕÚÇ nesta ordem (`ACUTAE`); 57 (`·`) para qualquer outro caractere.
 
-Ordem de composição em `render` (todas as coordenadas passam pela projeção de curvatura):
+Ordem de composição em `render` (as crônicas do plinto usam coordenadas planas; os demais
+elementos passam pela projeção de curvatura):
 
 0. `concentus(&mundus, &facultates, &indicia, &regimen)`: calcula o vetor de afinação consumido
    por todas as etapas seguintes; `palette(&concentus)` deriva as 16 cores; nenhuma etapa lê o estado para decidir cor, contraste, espessura ou registro;
 1. ardósia (luminância 1, estrato 3);
-2. céu: constelação, grafo das crônicas, hexagrama, lua, linha do evento raro (estrato 2);
-3. estratos da encosta (perfil pela regra 30 evoluída por coluna), ruínas (estratos 2..=1);
+2. céu na região `sky_region(comp, W, onus)`: constelação, grafo das crônicas, hexagrama,
+   lua, linha do evento raro (estrato 2);
+3. estratos da encosta (perfil pela regra 30 evoluída por coluna), ruínas (estratos 2..=1):
+   cada traço tem tom ≤ 15−`contrastus` e recorte projetado em y < S; a projeção mantém o
+   centro e as dimensões do quadro completo;
 4. moldura orgânica (estrato 0);
-5. figura, rocha, sombra, persona, ensō (estrato 1);
-6. crônicas e, após agnitio, o `Verbum` em hexadecimal (estrato 0);
+5. figura, rocha, sombra, persona, ensō (estrato 1); em seguida, aforismo do nó 0 com fundo
+   ardósia de (6·glifos+2)·s por 12s em (x−s,y−s), sob a projeção, estrato 2 e recorte
+   projetado em y < S. A âncora nominal é (nó0.x+2s,nó0.y−5s). A caixa
+   do hexagrama ativo (incluindo espessura) e a caixa do disco lunar noturno iluminado,
+   expandidas em 1s para separar pixels projetados, são protegidas. Entre y nominal e as
+   posições imediatamente acima/abaixo de cada caixa, vence o menor deslocamento que caiba
+   em 0..S, mantenha a caixa projetada dentro do quadro acima do plinto e evite ambas,
+   desempate pelo menor y. Sem candidato com x nominal, tenta distâncias horizontais inteiras
+   crescentes, esquerda antes de direita em empate, limitadas pela largura do quadro, com os
+   mesmos candidatos verticais. Vence a primeira posição viável; a caixa também precisa caber
+   logicamente na largura. Sem posição viável, omite o aforismo nesse quadro;
+6. crônicas com `Pictor::flat`, fora da projeção; após agnitio, o `Verbum` presente em
+   hexadecimal sob a projeção da cena (estrato 0);
 7. Bicolor: limiar de Bayer sobre a luminância; Littera: mapa para a rampa de glifos.
+
+`Mundus::render` obtém o prefixo efetivo de `arbitrium::visible_annales`: ANNALES,
+`regimen.lines` e o limite do meio governam juntos o texto e seu registro. O caminho raster
+calcula o acorde com `cells = false`, preservando as demais capacidades e o regimen escolhido.
+`render_cellae` normaliza as capacidades para `cells = true`, `width = cols`, `height = rows` da grade real
+antes de calcular `Concentus`; a seleção usa o mesmo limite de linhas e de `rows`. A
+identidade do acorde entre stili pressupõe capacidades iguais. Os dígitos de agnitio são
+independentes da camada ANNALES. O aforismo pertence a CAELUM e usa a seleção completa de
+`annales`, mesmo quando a capacidade efetiva de crônicas é zero.
 
 ## 6. ABI C (`sisyphium-limen`)
 

@@ -51,6 +51,10 @@ pub struct Pictor<'t, 'p> {
     /// The inclusive logical rectangle `[left, top, right, bottom]` outside which no point
     /// reaches the frame ([`fines`]).
     fines: [i64; 4],
+    /// Exclusive projected row limit for the ground (REQ-L2-06).
+    finis_y: u16,
+    /// Highest luminance of a ground mark (REQ-L5-11).
+    lumen_maximum: u8,
 }
 
 /// Distance from the center beyond which a logical displacement cannot land within `extent`
@@ -108,12 +112,24 @@ impl<'t, 'p> Pictor<'t, 'p> {
             cy,
             half,
             fines,
+            finis_y: h as u16,
+            lumen_maximum: 15,
         }
     }
 
     /// A painter without curvature.
     pub fn flat(tab: &'t mut Tabula<'p>) -> Self {
         Self::new(tab, 0)
+    }
+
+    /// A ground painter with the full frame's projection, writing only projected rows below
+    /// `scene_h` and tones at most `lum` (REQ-L2-06; `docs/05-estetica.md` §10). Existing
+    /// constructors retain the whole frame and the full sixteen-tone range.
+    pub(crate) fn ground(tab: &'t mut Tabula<'p>, kappa: i8, scene_h: u16, lum: u8) -> Self {
+        let mut painter = Self::new(tab, kappa);
+        painter.finis_y = scene_h.min(painter.tab.height);
+        painter.lumen_maximum = lum.min(15);
+        painter
     }
 
     /// The farthest logical coordinate that can still project inside the frame: the strongest
@@ -171,6 +187,30 @@ impl<'t, 'p> Pictor<'t, 'p> {
         )
     }
 
+    /// Whether an entire logical rectangle fits the projected writing region (REQ-L2-06,
+    /// REQ-L5-06), using the exact point and block of `plot`. In the operational curvature
+    /// range ±64, expansion reaches its extrema at corners; contraction may also reach an
+    /// extremum at an edge point nearest either central axis. These nine samples include
+    /// both cases without a second projection formula. Empty rectangles do not fit.
+    pub(crate) fn contains_projection(&self, x: i32, y: i32, w: i32, h: i32) -> bool {
+        if w <= 0 || h <= 0 {
+            return false;
+        }
+        let right = x.saturating_add(w.saturating_sub(1));
+        let bottom = y.saturating_add(h.saturating_sub(1));
+        let columns = [x, self.cx.clamp(x, right), right];
+        let rows = [y, self.cy.clamp(y, bottom), bottom];
+        columns.into_iter().all(|column| {
+            rows.into_iter().all(|row| {
+                let (px, py, side) = self.project(column, row);
+                px >= 0
+                    && py >= 0
+                    && px.saturating_add(side) <= i64::from(self.tab.width)
+                    && py.saturating_add(side) <= i64::from(self.finis_y)
+            })
+        })
+    }
+
     /// Writes one logical pixel: the block of REQ-L2-06 whose top-left corner is the projected
     /// point (one pixel unless the curvature expands), clipped to the frame.
     pub fn plot(&mut self, x: i32, y: i32, lum: u8, stratum: u8, label: u8, modo: Modo) {
@@ -178,11 +218,18 @@ impl<'t, 'p> Pictor<'t, 'p> {
         let (w, h) = (i64::from(self.tab.width), i64::from(self.tab.height));
         let (right, bottom) = (
             px.saturating_add(side).min(w),
-            py.saturating_add(side).min(h),
+            py.saturating_add(side).min(h).min(i64::from(self.finis_y)),
         );
         for row in py.max(0)..bottom {
             for column in px.max(0)..right {
-                self.put(column, row, lum, stratum, label, modo);
+                self.put(
+                    column,
+                    row,
+                    lum.min(self.lumen_maximum),
+                    stratum,
+                    label,
+                    modo,
+                );
             }
         }
     }
@@ -333,6 +380,65 @@ mod tests {
         clippy::naive_bytecount
     )]
     use super::*;
+    /// Ground restrictions are applied after the full frame projection, including expanded
+    /// blocks, without touching the caller's suffix (REQ-L2-06, REQ-H-02).
+    #[test]
+    fn ground_limits_projected_pixels() {
+        for kappa in [-64, 0, 64] {
+            let mut ordinary = [0xA5; 64 * 48 + 8];
+            let mut bounded = ordinary;
+            for (buf, ground) in [(&mut ordinary, false), (&mut bounded, true)] {
+                let mut tab = crate::hospes::Tabula::new(64, 48, buf).unwrap();
+                let mut p = if ground {
+                    Pictor::ground(&mut tab, kappa, 32, 4)
+                } else {
+                    Pictor::new(&mut tab, kappa)
+                };
+                for y in -16..80 {
+                    for x in -16..80 {
+                        p.plot(x, y, 12, 2, 0, Modo::Super);
+                    }
+                }
+            }
+            for (at, (&normal, &ground)) in ordinary[..64 * 48].iter().zip(&bounded).enumerate() {
+                if at / 64 >= 32 || normal == 0xA5 {
+                    assert_eq!(ground, 0xA5);
+                } else {
+                    assert_eq!(ground, crate::signum::pixel::pixel(4, 2, 0));
+                }
+            }
+            assert_eq!(&bounded[64 * 48..], &[0xA5; 8]);
+        }
+    }
+
+    /// Projected containment agrees with visiting every logical pixel, including edge
+    /// extrema near the central axes throughout the operational curvature range (REQ-L2-06).
+    #[test]
+    fn projected_rectangle_containment() {
+        let mut buffer = [0; 64 * 48];
+        let mut tab = crate::hospes::Tabula::new(64, 48, &mut buffer).unwrap();
+        for kappa in (-64i8..=64).step_by(8) {
+            let painter = Pictor::ground(&mut tab, kappa, 40, 15);
+            for x in (-16..80).step_by(11) {
+                for y in (-12..60).step_by(9) {
+                    for (w, h) in [(1, 1), (7, 11), (21, 9), (33, 25)] {
+                        let expected = (x..x + w).all(|column| {
+                            (y..y + h).all(|row| {
+                                let (px, py, side) = painter.project(column, row);
+                                px >= 0 && py >= 0 && px + side <= 64 && py + side <= 40
+                            })
+                        });
+                        assert_eq!(
+                            painter.contains_projection(x, y, w, h),
+                            expected,
+                            "curvature {kappa}, rectangle {x},{y},{w},{h}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     use crate::hospes::Tabula;
     use crate::natura::galois;
     use crate::signum::pixel::{VOID, lum_of, pixel, stratum_of};

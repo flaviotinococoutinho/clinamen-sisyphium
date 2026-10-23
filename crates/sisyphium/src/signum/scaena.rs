@@ -1,22 +1,22 @@
 //! The scene composer: one frame from the world, the host, the regimen and the visible lines, in
 //! the order of `docs/04-arquitetura.md` §5, and the four stili (REQ-L5-03, REQ-L5-09, REQ-H-04).
 
+use crate::arbitrium::{annales, line_limit, revealed};
 use crate::concentus::{Concentus, concentus};
 use crate::corpus::{
     Figura, Postura, boulder_texture, draw_boulder, draw_figure, gait_phase, postura,
 };
 use crate::hospes::{
-    ANNALES, CAELUM, Cellae, Facultates, HEXAGRAMMA, Indicia, MARGO, PUNCTA, RUINAE, Regimen,
-    Stilus, Tabula,
+    CAELUM, Cellae, Facultates, HEXAGRAMMA, Indicia, MARGO, PUNCTA, RUINAE, Regimen, Stilus, Tabula,
 };
 use crate::mundus::Mundus;
-use crate::signum::caelum::{constellation, hexagram, moon, sky_region};
+use crate::signum::caelum::{constellation, graph, hexagram, moon, sky_region};
 use crate::signum::littera::{ORDO, cell_glyph, text};
 use crate::signum::margo::draw_frame;
 use crate::signum::mons::{draw_ruins, draw_slope};
 use crate::signum::pixel::{VOID, label_of, lum_of, pixel, stratum_of};
 use crate::signum::raster::{Modo, Pictor, bayer};
-use crate::spatium::{Compositio, Rect, compositio, isqrt};
+use crate::spatium::{Compositio, PHI_INV2, Rect, compositio, isqrt, part};
 
 /// FNV-1a over 64 bits: the hash of a frame for the golden tests.
 #[must_use]
@@ -104,7 +104,7 @@ fn cut(line: &str, glyphs: usize) -> &str {
     }
 }
 
-/// Whether the word of the night shows after the recognition: `eventus` 12 with `gradus` below
+/// Whether the present word shows after the recognition: `eventus` 12 with `gradus` below
 /// 240 (REQ-L8-02).
 fn recognized(mundus: &Mundus) -> bool {
     mundus.memoria.eventus() == 12 && mundus.memoria.gradus() < 240
@@ -124,7 +124,8 @@ fn hex16(word: u64) -> [u8; 16] {
     out
 }
 
-/// The sky in its region (REQ-L5-12): constellation, hexagram and moon (REQ-L5-06..08).
+/// The sky in its region (REQ-L5-12): constellation, graph, hexagram and moon. Returns the
+/// first node for the aphorism drawn after the world (REQ-L5-06..08; `docs/04-arquitetura.md` §5).
 #[allow(clippy::too_many_arguments)]
 fn compose_sky(
     pictor: &mut Pictor,
@@ -133,38 +134,175 @@ fn compose_sky(
     chord: &Concentus,
     indicia: &Indicia,
     regimen: &Regimen,
-    automatum: u8,
-    tranquillitas: u8,
-) {
+    mundus: &Mundus,
+) -> Option<(i32, i32)> {
+    let mut first = None;
+    let automatum = mundus.verbum.automatum();
+    let tranquillitas = mundus.verbum.tranquillitas();
     let scale = comp.s;
-    if regimen.has(CAELUM) {
+    if regimen.has(CAELUM) && sky.w > 0 && sky.h > 0 {
         constellation(pictor, sky, automatum, 6, CLASSIS_CAELI);
-    }
-    let room = i32::from(scale).wrapping_mul(12);
-    if regimen.has(HEXAGRAMMA)
-        && indicia.energy >= 77
-        && i32::from(sky.w) >= room
-        && i32::from(sky.h) >= room
-    {
-        let hx = i32::from(sky.x)
-            .wrapping_add(i32::from(sky.w))
-            .wrapping_sub(i32::from(scale).wrapping_mul(12));
-        hexagram(
+        let memoria = mundus.memoria;
+        let shown = if memoria.eventus() < 8 && memoria.ramus() < 3 {
+            revealed(memoria.gradus())
+        } else {
+            0
+        };
+        let trunk = (
+            i32::from(comp.m),
+            i32::from(part(pictor.height(), PHI_INV2) / 2),
+        );
+        first = graph(
             pictor,
-            hx,
-            i32::from(sky.y),
+            sky,
+            trunk,
+            memoria.eventus(),
+            memoria.ramus(),
+            shown,
+            mundus.verbum.onus(),
             scale,
-            tranquillitas,
-            8,
-            CLASSIS_CAELI,
+            9,
+            14,
         );
     }
-    if chord.nocturnal {
-        let r = i32::from(sky.h).wrapping_div(3).max(2);
-        let mx = i32::from(sky.x).wrapping_add(i32::from(sky.w).wrapping_mul(3).wrapping_div(4));
-        let my = i32::from(sky.y).wrapping_add(i32::from(sky.h).wrapping_shr(1));
-        moon(pictor, mx, my, r, chord.luna, 12, chord.australis);
+    if let Some((x, y)) = hexagram_origin(comp, sky, indicia, regimen) {
+        hexagram(pictor, x, y, scale, tranquillitas, 8, CLASSIS_CAELI);
     }
+    if let Some((x, y, radius)) = moon_geometry(sky, chord) {
+        moon(pictor, x, y, radius, chord.luna, 12, chord.australis);
+    }
+    first
+}
+
+/// The hexagram's origin when its layer, energy and sky room permit it (REQ-L5-07).
+fn hexagram_origin(
+    comp: &Compositio,
+    sky: Rect,
+    indicia: &Indicia,
+    regimen: &Regimen,
+) -> Option<(i32, i32)> {
+    let side = i32::from(comp.s).wrapping_mul(12);
+    (regimen.has(HEXAGRAMMA)
+        && indicia.energy >= 77
+        && i32::from(sky.w) >= side
+        && i32::from(sky.h) >= side)
+        .then(|| {
+            (
+                i32::from(sky.x)
+                    .wrapping_add(i32::from(sky.w))
+                    .wrapping_sub(side),
+                i32::from(sky.y),
+            )
+        })
+}
+
+/// The moon's centre and radius while the night has an illuminated phase (REQ-L5-08).
+fn moon_geometry(sky: Rect, chord: &Concentus) -> Option<(i32, i32, i32)> {
+    (chord.nocturnal && chord.luna != 0).then(|| {
+        (
+            i32::from(sky.x).wrapping_add(i32::from(sky.w).wrapping_mul(3) / 4),
+            i32::from(sky.y).wrapping_add(i32::from(sky.h) / 2),
+            (i32::from(sky.h) / 3).max(2),
+        )
+    })
+}
+
+/// Logical rectangles protected from the aphorism: the hexagram's twelve-scale-unit cell
+/// (including the centred stroke) and the moon's full disc (REQ-L5-06..08), expanded by one
+/// scale unit to separate projected pixels under quantization. Edges are exclusive.
+fn sky_obstacles(
+    comp: &Compositio,
+    sky: Rect,
+    chord: &Concentus,
+    indicia: &Indicia,
+    regimen: &Regimen,
+) -> [Option<[i32; 4]>; 2] {
+    let hex = hexagram_origin(comp, sky, indicia, regimen).map(|(x, y)| {
+        let side = i32::from(comp.s).wrapping_mul(12);
+        let overhang = i32::from((comp.s as u8).max(1).wrapping_sub(1) / 2);
+        [
+            x.wrapping_sub(overhang),
+            y.wrapping_sub(overhang),
+            x.wrapping_add(side).wrapping_add(overhang),
+            y.wrapping_add(side).wrapping_add(overhang),
+        ]
+    });
+    let lunar = moon_geometry(sky, chord).map(|(x, y, radius)| {
+        [
+            x.wrapping_sub(radius),
+            y.wrapping_sub(radius),
+            x.wrapping_add(radius).wrapping_add(1),
+            y.wrapping_add(radius).wrapping_add(1),
+        ]
+    });
+    let gap = i32::from(comp.s);
+    [hex, lunar].map(|bounds| {
+        bounds.map(|[left, top, right, bottom]| {
+            [
+                left.wrapping_sub(gap),
+                top.wrapping_sub(gap),
+                right.wrapping_add(gap),
+                bottom.wrapping_add(gap),
+            ]
+        })
+    })
+}
+
+/// The nearest usable aphorism anchor (REQ-L5-06): at nominal x, choose among nominal y and
+/// positions immediately above/below the protected symbols, by least vertical displacement,
+/// ties above. If none fits, try integer horizontal distances in increasing order, left before
+/// right, with the same vertical candidates. Every box stays inside the logical frame/scene
+/// and the projected writing region. No position means no annotation on that small surface.
+fn aphorism_anchor(
+    pictor: &Pictor,
+    nominal: (i32, i32),
+    width: i32,
+    scale: u16,
+    scene_h: u16,
+    obstacles: [Option<[i32; 4]>; 2],
+) -> Option<(i32, i32)> {
+    let unit = i32::from(scale);
+    let height = unit.wrapping_mul(12);
+    let frame_width = i32::from(pictor.width());
+    if height > i32::from(scene_h) || width > frame_width {
+        return None;
+    }
+    let below = unit.wrapping_mul(11);
+    for distance in 0..=frame_width {
+        for x in [
+            nominal.0.wrapping_sub(distance),
+            nominal.0.wrapping_add(distance),
+        ] {
+            let left = x.wrapping_sub(unit);
+            let right = left.wrapping_add(width);
+            if left < 0 || right > frame_width {
+                continue;
+            }
+            let sides = obstacles
+                .into_iter()
+                .flatten()
+                .flat_map(|[_, top, _, bottom]| {
+                    [top.wrapping_sub(below), bottom.wrapping_add(unit)]
+                });
+            let chosen = core::iter::once(nominal.1)
+                .chain(sides)
+                .filter(|&y| {
+                    let top = y.wrapping_sub(unit);
+                    let bottom = y.wrapping_add(below);
+                    top >= 0
+                        && bottom <= i32::from(scene_h)
+                        && pictor.contains_projection(left, top, width, height)
+                        && obstacles.iter().flatten().all(|&[sx, sy, ex, ey]| {
+                            right <= sx || left >= ex || bottom <= sy || top >= ey
+                        })
+                })
+                .min_by_key(|&y| (y.wrapping_sub(nominal.1).unsigned_abs(), y));
+            if let Some(y) = chosen {
+                return Some((x, y));
+            }
+        }
+    }
+    None
 }
 
 /// The posture of the figure from the state (REQ-L3-02): contemplative during a persona
@@ -187,6 +325,9 @@ fn compose_actors(
     mundus: &Mundus,
 ) {
     let verbum = mundus.verbum;
+    if comp.figure_h == 0 {
+        return;
+    }
     let scale = comp.s;
     let foot = slope_point(comp, verbum.ascensus());
     let post = figure_posture(mundus, indicia.leaving);
@@ -243,8 +384,12 @@ fn compose_text(
     hexadecimal: bool,
 ) {
     let scale = comp.s;
-    if regimen.has(ANNALES) {
-        for (i, line) in (0..=u8::MAX).zip(lines.iter().take(usize::from(regimen.lines))) {
+    {
+        for (i, line) in (0..=u8::MAX).zip(
+            lines
+                .iter()
+                .take(usize::from(line_limit(regimen, u16::MAX))),
+        ) {
             let (indent, room) = plinth_line(comp, i);
             let x = i32::from(comp.annales.x).wrapping_add(indent);
             let y = i32::from(comp.annales.y)
@@ -260,7 +405,15 @@ fn compose_text(
             );
         }
     }
-    if hexadecimal && recognized(mundus) {
+    if hexadecimal {
+        compose_word(pictor, comp, mundus);
+    }
+}
+
+/// Draws the present word after recognition (REQ-L8-02), through the scene projection.
+fn compose_word(pictor: &mut Pictor, comp: &Compositio, mundus: &Mundus) {
+    let scale = comp.s;
+    if recognized(mundus) {
         let digits = hex16(mundus.verbum.bits());
         if let Ok(word) = core::str::from_utf8(&digits) {
             let x = i32::from(pictor.width())
@@ -296,29 +449,9 @@ fn compose(
     prefix(tab.pixels, tab.width, tab.height).fill(VOID);
     let sky = sky_region(&comp, tab.width, verbum.onus());
     let mut pictor = Pictor::new(tab, chord.curvatura);
-    compose_sky(
-        &mut pictor,
-        &comp,
-        sky,
-        chord,
-        indicia,
-        regimen,
-        verbum.automatum(),
-        verbum.tranquillitas(),
-    );
-    draw_slope(
-        &mut pictor,
-        &comp,
-        verbum.automatum(),
-        regimen.strata,
-        indicia.offset,
-        3,
-        6,
-        regimen.has(PUNCTA),
-    );
-    if regimen.has(RUINAE) {
-        draw_ruins(&mut pictor, &comp, mundus.memoria.clausurae(), 7, comp.s);
-    }
+    let first = compose_sky(&mut pictor, &comp, sky, chord, indicia, regimen, mundus);
+    compose_ground(tab, &comp, chord, indicia, regimen, mundus);
+    let mut pictor = Pictor::new(tab, chord.curvatura);
     if regimen.has(MARGO) {
         draw_frame(
             &mut pictor,
@@ -332,7 +465,85 @@ fn compose(
         );
     }
     compose_actors(&mut pictor, &comp, chord, indicia, mundus);
-    compose_text(&mut pictor, &comp, regimen, mundus, lines, hexadecimal);
+    compose_aphorism(
+        &mut Pictor::ground(tab, chord.curvatura, comp.scene_h, 15),
+        &comp,
+        sky_obstacles(&comp, sky, chord, indicia, regimen),
+        first,
+        annales(mundus.memoria, chord.lingua, indicia.leaving).aphorismus,
+    );
+    let mut pictor = Pictor::flat(tab);
+    compose_text(&mut pictor, &comp, regimen, mundus, lines, false);
+    if hexadecimal {
+        compose_word(&mut Pictor::new(tab, chord.curvatura), &comp, mundus);
+    }
+}
+
+/// Reserves a slate rectangle for the aphorism, near the first node's anchor and under the
+/// scene projection (REQ-L5-06). The 6s by 10s font cell gets one scale unit of space on each
+/// side: (6·characters + 2)s by 12s. The caller clips projected writes above the plinth.
+fn compose_aphorism(
+    pictor: &mut Pictor,
+    comp: &Compositio,
+    obstacles: [Option<[i32; 4]>; 2],
+    first: Option<(i32, i32)>,
+    aphorism: Option<&str>,
+) {
+    let scale = comp.s;
+    if let (Some((x, y)), Some(aphorism)) = (first, aphorism) {
+        let unit = i32::from(scale);
+        let x = x.wrapping_add(unit.wrapping_mul(2));
+        let y = y.wrapping_sub(unit.wrapping_mul(5));
+        let width = (aphorism.chars().count() as i32)
+            .wrapping_mul(6)
+            .wrapping_add(2)
+            .wrapping_mul(unit);
+        let Some((x, y)) = aphorism_anchor(pictor, (x, y), width, scale, comp.scene_h, obstacles)
+        else {
+            return;
+        };
+        pictor.fill(
+            x.wrapping_sub(unit),
+            y.wrapping_sub(unit),
+            width,
+            unit.wrapping_mul(12),
+            1,
+            CLASSIS_CAELI,
+            false,
+        );
+        text(pictor, x, y, scale, aphorism, 12, CLASSIS_CAELI);
+    }
+}
+
+/// The slope and ruins keep the frame's projection but stop at the plinth and the chord's
+/// tone ceiling (REQ-L2-06, REQ-L5-11; `docs/05-estetica.md` §10).
+fn compose_ground(
+    tab: &mut Tabula,
+    comp: &Compositio,
+    chord: &Concentus,
+    indicia: &Indicia,
+    regimen: &Regimen,
+    mundus: &Mundus,
+) {
+    let mut pictor = Pictor::ground(
+        tab,
+        chord.curvatura,
+        comp.scene_h,
+        15u8.saturating_sub(chord.contrastus),
+    );
+    draw_slope(
+        &mut pictor,
+        comp,
+        mundus.verbum.automatum(),
+        regimen.strata,
+        indicia.offset,
+        3,
+        6,
+        regimen.has(PUNCTA),
+    );
+    if regimen.has(RUINAE) {
+        draw_ruins(&mut pictor, comp, mundus.memoria.clausurae(), 7, comp.s);
+    }
 }
 
 /// Two tones: the slate (luminance ≤ 1) is 0, the marks of the figure and of the text
@@ -456,7 +667,33 @@ fn musivum(
     }
 }
 
-/// Renders one frame in the regimen's stilus (REQ-L5-03, REQ-H-04).
+/// Normalizes only the medium declared by the actual rendering call before selecting the
+/// chord (REQ-L5-11): raster has no cell-row limit, while cells use the actual grid dimensions.
+fn surface_chord(
+    mundus: &Mundus,
+    facultates: &Facultates,
+    indicia: &Indicia,
+    regimen: &Regimen,
+    grid: Option<(u16, u16)>,
+) -> Concentus {
+    let effective = match grid {
+        Some((cols, rows)) => Facultates {
+            cells: true,
+            width: cols,
+            height: rows,
+            ..*facultates
+        },
+        None => Facultates {
+            cells: false,
+            ..*facultates
+        },
+    };
+    concentus(mundus, &effective, indicia, regimen)
+}
+
+/// Renders one raster frame in the regimen's stilus (REQ-L5-03, REQ-H-04). The chord uses
+/// `cells = false` because this surface has no cell-row limit, preserving the caller's other
+/// capabilities and the chosen regimen (REQ-L5-11).
 pub fn render(
     mundus: &Mundus,
     facultates: &Facultates,
@@ -465,7 +702,7 @@ pub fn render(
     lines: &[&str],
     tab: &mut Tabula,
 ) {
-    let chord = concentus(mundus, facultates, indicia, regimen);
+    let chord = surface_chord(mundus, facultates, indicia, regimen, None);
     match regimen.stilus {
         Stilus::Creta => compose(mundus, &chord, indicia, regimen, lines, tab, true),
         Stilus::Musivum => musivum(mundus, &chord, indicia, regimen, lines, tab),
@@ -486,7 +723,9 @@ pub fn render(
 /// recognition the sixteen hexadecimal digits of the word stand at the right end of the first
 /// row (REQ-L8-02). A `scratch` without the grid's dimensions is refused and nothing is written.
 /// Bits 0..=7 glyph ([`cell_glyph`]), 8..=11 tone, 12..=13 stratum; only the prefixes of
-/// cols·rows cells and pixels are read and written (REQ-H-02).
+/// cols·rows cells and pixels are read and written (REQ-H-02). The chord uses cell capabilities
+/// normalized to the actual grid, so its register and the letters share the same row limit
+/// (REQ-L5-11); recognition digits remain independent of ANNALES.
 #[must_use]
 pub fn render_cellae(
     mundus: &Mundus,
@@ -500,7 +739,13 @@ pub fn render_cellae(
     if scratch.width != cells.cols || scratch.height != cells.rows {
         return false;
     }
-    let chord = concentus(mundus, facultates, indicia, regimen);
+    let chord = surface_chord(
+        mundus,
+        facultates,
+        indicia,
+        regimen,
+        Some((cells.cols, cells.rows)),
+    );
     let quiet = Regimen {
         lines: 0,
         ..*regimen
@@ -522,7 +767,9 @@ pub fn render_cellae(
     let letter = |c: char, lum: u8| {
         u16::from(cell_glyph(c)) | (u16::from(lum) << 8) | (u16::from(CLASSIS_SIGNORUM) << 12)
     };
-    let shown = lines.len().min(usize::from(regimen.lines)).min(rows);
+    let shown = lines
+        .len()
+        .min(usize::from(line_limit(regimen, cells.rows)));
     for (i, line) in lines.iter().take(shown).enumerate() {
         let row = rows.wrapping_sub(shown).wrapping_add(i);
         for (k, ch) in line.chars().take(cols).enumerate() {
@@ -548,22 +795,519 @@ pub fn render_cellae(
 /// Golden hashes of the six scenarios (REQ-L5-09), recorded after visual inspection.
 #[cfg(test)]
 const GOLDEN: [(&str, u64); 6] = [
-    ("vigilia", 0x7456_D704_92AF_0BB7),
-    ("acedia", 0x3A8A_F286_4867_3454),
-    ("somnium", 0xE4A8_6523_FA7C_0407),
-    ("quies", 0xBCDB_E4CF_E9EE_0CCF),
-    ("littera", 0x4988_A946_E3FF_681D),
-    ("somnium-1920x1080", 0xF947_ADD8_C765_ADAF),
+    ("vigilia", 0x5A6A_21F0_DB26_18D1),
+    ("acedia", 0xF476_2F2C_93C8_105B),
+    ("somnium", 0xAC2D_7475_7129_BCA8),
+    ("quies", 0xD668_7590_F327_FB9F),
+    ("littera", 0x32C8_0A84_CCF4_85E3),
+    ("somnium-1920x1080", 0xB1AC_03C5_B13F_6E38),
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hospes::{Cellae, Facultates, Indicia, Regimen, Stilus, Tabula};
+    use crate::hospes::{ANNALES, Cellae, Facultates, Indicia, Regimen, Stilus, Tabula};
     use crate::mundus::Mundus;
     use crate::signum::pixel::{lum_of, stratum_of};
     use crate::verbum::Modus;
     use std::vec::Vec;
+
+    /// The actual rendering surface governs the register even when the caller declares
+    /// different cell capabilities; other channels retain the same inputs (REQ-L5-11).
+    #[test]
+    fn render_chord_follows_surface() {
+        use crate::arbitrium::Registrum;
+        let mut world = Mundus::genesis(1);
+        world.memoria = world.memoria.with_eventus(3).with_ramus(1).with_gradus(400);
+        let declared_cells = Facultates {
+            cells: true,
+            height: 1,
+            ..Facultates::default()
+        };
+        let declared_raster = Facultates::default();
+        let measures = Indicia::default();
+        let regimen = Regimen::default();
+        assert_eq!(
+            concentus(&world, &declared_cells, &measures, &regimen).registrum,
+            Registrum::Intimum
+        );
+        assert_eq!(
+            surface_chord(&world, &declared_cells, &measures, &regimen, None).registrum,
+            Registrum::Abstractum
+        );
+        assert_eq!(
+            surface_chord(&world, &declared_raster, &measures, &regimen, Some((80, 1))).registrum,
+            Registrum::Intimum
+        );
+        assert_eq!(
+            surface_chord(&world, &declared_raster, &measures, &regimen, Some((80, 2))).registrum,
+            Registrum::Vivum
+        );
+        let mut cells_chord =
+            surface_chord(&world, &declared_raster, &measures, &regimen, Some((80, 2)));
+        let raster_chord = surface_chord(&world, &declared_cells, &measures, &regimen, None);
+        cells_chord.registrum = Registrum::Abstractum;
+        assert_eq!(cells_chord, raster_chord);
+        let mut actual = std::vec![VOID;320*180];
+        let mut expected = actual.clone();
+        world.render(
+            &declared_cells,
+            &measures,
+            &regimen,
+            &mut Tabula::new(320, 180, &mut actual).unwrap(),
+        );
+        world.render(
+            &declared_raster,
+            &measures,
+            &regimen,
+            &mut Tabula::new(320, 180, &mut expected).unwrap(),
+        );
+        assert_eq!(actual, expected);
+    }
+
+    /// The plinth stays flat and the ground stays above it under curvature (REQ-L2-06).
+    #[test]
+    fn plinth_outside_dream() {
+        let render_at = |kappa| {
+            let mut m = Mundus::genesis(1);
+            m.verbum = m.verbum.with_ascensus(90).with_curvatura(kappa);
+            m.memoria = m
+                .memoria
+                .with_ramus(1)
+                .with_gradus(400)
+                .with_clausurae(0x3FFE);
+            let mut buf = std::vec![0; 320 * 180];
+            render(
+                &m,
+                &Facultates::default(),
+                &Indicia {
+                    epoch_ms: NOON,
+                    ..Indicia::default()
+                },
+                &Regimen::default(),
+                &LINES,
+                &mut Tabula::new(320, 180, &mut buf).unwrap(),
+            );
+            buf
+        };
+        let plain = render_at(0);
+        let start = usize::from(compositio(320, 180, 6).scene_h) * 320;
+        for kappa in [-64, 64] {
+            let curved = render_at(kappa);
+            assert_eq!(
+                plain[start..]
+                    .iter()
+                    .map(|&p| lum_of(p) == 13)
+                    .collect::<Vec<_>>(),
+                curved[start..]
+                    .iter()
+                    .map(|&p| lum_of(p) == 13)
+                    .collect::<Vec<_>>()
+            );
+            assert_ne!(&plain[..start], &curved[..start]);
+        }
+    }
+
+    /// No actor exists when the scene has no height; degenerate skies and scaled mosaics
+    /// keep the caller's suffix intact (REQ-H-02, REQ-L5-06).
+    #[test]
+    fn degenerate_sky() {
+        let mut m = Mundus::genesis(7);
+        m.memoria = m.memoria.with_ramus(2).with_gradus(400);
+        m.verbum = m.verbum.with_onus(230);
+        for (w, h, stilus) in [
+            (272u16, 60u16, Stilus::Creta),
+            (1, 1, Stilus::Creta),
+            (640, 360, Stilus::Musivum),
+            (1920, 1080, Stilus::Musivum),
+        ] {
+            let mut buf = std::vec![0xA5; usize::from(w)*usize::from(h)+17];
+            let f = Facultates {
+                width: w,
+                height: h,
+                ..Facultates::default()
+            };
+            let r = Regimen {
+                stilus,
+                ..Regimen::default()
+            };
+            m.render(
+                &f,
+                &Indicia::default(),
+                &r,
+                &mut Tabula::new(w, h, &mut buf).unwrap(),
+            );
+            assert!(
+                buf[usize::from(w) * usize::from(h)..]
+                    .iter()
+                    .all(|&p| p == 0xA5)
+            );
+            let comp = compositio(w, h, 6);
+            if comp.scene_h == 0 {
+                let mut actors = std::vec![VOID; usize::from(w)*usize::from(h)];
+                let mut tab = Tabula::new(w, h, &mut actors).unwrap();
+                let chord = concentus(&m, &f, &Indicia::default(), &r);
+                compose_actors(
+                    &mut Pictor::flat(&mut tab),
+                    &comp,
+                    &chord,
+                    &Indicia::default(),
+                    &m,
+                );
+                assert!(actors.iter().all(|&p| p == VOID));
+            }
+        }
+    }
+
+    /// Accent indices survive the cell renderer and ANNALES controls the letters (REQ-H-04).
+    #[test]
+    fn render_cellae_keeps_accents() {
+        for enabled in [false, true] {
+            let mut scratch = [0; 20 * 4];
+            let mut cells = [0; 20 * 4];
+            let mut r = Regimen::default();
+            if !enabled {
+                r.layers &= !ANNALES;
+            }
+            assert!(render_cellae(
+                &Mundus::genesis(1),
+                &Facultates::default(),
+                &Indicia::default(),
+                &r,
+                &["AÇÃO"],
+                &mut Tabula::new(20, 4, &mut scratch).unwrap(),
+                &mut Cellae::new(20, 4, &mut cells).unwrap()
+            ));
+            if enabled {
+                assert_eq!(
+                    cells[60..64].iter().map(|&c| c & 255).collect::<Vec<_>>(),
+                    [0, 81, 73, 14]
+                );
+            } else {
+                assert!(cells.iter().all(|&c| (c >> 8) & 15 != 13));
+            }
+        }
+    }
+
+    /// The burden's corrupted harmony reaches the composed sky (REQ-L5-12).
+    #[test]
+    fn harmony_reaches_scene() {
+        let at = |onus| {
+            let mut m = Mundus::genesis(1);
+            m.verbum = m.verbum.with_onus(onus);
+            let mut buf = std::vec![VOID; 320*180];
+            m.render(
+                &Facultates::default(),
+                &Indicia {
+                    epoch_ms: NOON,
+                    ..Indicia::default()
+                },
+                &Regimen::default(),
+                &mut Tabula::new(320, 180, &mut buf).unwrap(),
+            );
+            buf
+        };
+        assert_ne!(&at(200)[..320 * 32], &at(201)[..320 * 32]);
+    }
+
+    /// Every ground mark is bounded by 15 minus the chord contrast and remains above the
+    /// plinth after contraction or expansion (REQ-L2-06, REQ-L5-11).
+    #[test]
+    fn contrast_governs_ground() {
+        for (energy, modus, contrast) in [
+            (255, Modus::Vigilia, 8),
+            (120, Modus::Vigilia, 10),
+            (60, Modus::Vigilia, 12),
+            (255, Modus::Quies, 15),
+        ] {
+            for kappa in [-64, 0, 64] {
+                for dither in [false, true] {
+                    let mut m = Mundus::genesis(1);
+                    m.verbum = m.verbum.with_modus(modus).with_curvatura(kappa);
+                    m.memoria = m.memoria.with_clausurae(0x3FFE);
+                    let i = Indicia {
+                        epoch_ms: NOON,
+                        energy,
+                        ..Indicia::default()
+                    };
+                    let r = Regimen {
+                        layers: RUINAE | if dither { PUNCTA } else { 0 },
+                        ..Regimen::default()
+                    };
+                    let chord = concentus(&m, &Facultates::default(), &i, &r);
+                    assert_eq!(chord.contrastus, contrast);
+                    let comp = compositio(320, 180, 6);
+                    let mut buf = std::vec![VOID;320*180+8];
+                    compose_ground(
+                        &mut Tabula::new(320, 180, &mut buf).unwrap(),
+                        &comp,
+                        &chord,
+                        &i,
+                        &r,
+                        &m,
+                    );
+                    let marks: Vec<_> = buf.iter().copied().filter(|&p| p != VOID).collect();
+                    assert_ne!(marks, Vec::<u8>::new());
+                    assert!(marks.iter().all(|&p| lum_of(p) <= 15 - contrast));
+                    assert!(
+                        buf[usize::from(comp.scene_h) * 320..]
+                            .iter()
+                            .all(|&p| p == VOID)
+                    );
+                }
+            }
+        }
+    }
+
+    /// The aphorism's reserved slate keeps its font intact after the graph, hexagram and
+    /// ground, including a curved scene (REQ-L5-06).
+    #[test]
+    fn aphorism_survives_scene() {
+        for eventus in [1, 3] {
+            for kappa in [-64, 0, 64] {
+                let mut world = Mundus::genesis(7);
+                world.verbum = world.verbum.with_curvatura(kappa).with_ascensus(90);
+                world.memoria = world
+                    .memoria
+                    .with_eventus(eventus)
+                    .with_ramus(2)
+                    .with_gradus(400);
+                let f = Facultates {
+                    lingua: crate::hospes::Lingua::Pt,
+                    ..Facultates::default()
+                };
+                let i = Indicia {
+                    epoch_ms: NOON,
+                    ..Indicia::default()
+                };
+                let regimen = Regimen::default();
+                let comp = compositio(320, 180, 6);
+                let first = crate::signum::caelum::node(comp.sky, eventus, 2, 0, 32);
+                let aphorism = annales(world.memoria, f.lingua, false).aphorismus.unwrap();
+                let mut expected = std::vec![VOID;320*180];
+                let mut tab = Tabula::new(320, 180, &mut expected).unwrap();
+                let mut painter = Pictor::ground(&mut tab, kappa, comp.scene_h, 15);
+                let (x, y) = (first.0 + 2, if eventus == 1 || kappa > 0 { 30 } else { 4 });
+                painter.fill(
+                    x - 1,
+                    y - 1,
+                    6 * aphorism.chars().count() as i32 + 2,
+                    12,
+                    1,
+                    2,
+                    false,
+                );
+                text(&mut painter, x, y, 1, aphorism, 12, 2);
+                let mut actual = std::vec![VOID;320*180];
+                world.render(
+                    &f,
+                    &i,
+                    &regimen,
+                    &mut Tabula::new(320, 180, &mut actual).unwrap(),
+                );
+                for (at, &pixel) in expected.iter().enumerate().filter(|(_, p)| **p != VOID) {
+                    assert_eq!(
+                        actual[at], pixel,
+                        "event {eventus}, kappa {kappa}, pixel {at}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Both astronomical signs survive every graph branch by day and night, under
+    /// contraction and expansion; larger frames exercise scales two and six (REQ-L5-06..08).
+    #[test]
+    fn aphorism_preserves_symbols() {
+        for (w, h) in [(320u16, 180u16), (640, 360), (1920, 1080)] {
+            for eventus in 0..8 {
+                if w > 320 && ![1, 3].contains(&eventus) {
+                    continue;
+                }
+                for ramus in 0..3 {
+                    if w > 320 && ramus != 2 {
+                        continue;
+                    }
+                    for kappa in [-64, 0, 64] {
+                        for onus in [32, 230] {
+                            for epoch_ms in [NOON, NOON + 12 * 3_600_000] {
+                                let mut m = Mundus::genesis(7);
+                                m.verbum = m
+                                    .verbum
+                                    .with_onus(onus)
+                                    .with_curvatura(kappa)
+                                    .with_ascensus(90);
+                                m.memoria = m
+                                    .memoria
+                                    .with_eventus(eventus)
+                                    .with_ramus(ramus)
+                                    .with_gradus(400);
+                                let f = Facultates {
+                                    width: w,
+                                    height: h,
+                                    lingua: crate::hospes::Lingua::Pt,
+                                    ..Facultates::default()
+                                };
+                                let i = Indicia {
+                                    epoch_ms,
+                                    ..Indicia::default()
+                                };
+                                let r = Regimen::default();
+                                let chord = concentus(&m, &f, &i, &r);
+                                let comp = compositio(w, h, 6);
+                                let sky = sky_region(&comp, w, onus);
+                                let mut expected = std::vec![VOID;usize::from(w)*usize::from(h)];
+                                let mut tab = Tabula::new(w, h, &mut expected).unwrap();
+                                let _ = compose_sky(
+                                    &mut Pictor::new(&mut tab, kappa),
+                                    &comp,
+                                    sky,
+                                    &chord,
+                                    &i,
+                                    &Regimen {
+                                        layers: HEXAGRAMMA,
+                                        ..r
+                                    },
+                                    &m,
+                                );
+                                let mut actual = std::vec![VOID;usize::from(w)*usize::from(h)];
+                                m.render(&f, &i, &r, &mut Tabula::new(w, h, &mut actual).unwrap());
+                                for (at, &pixel) in
+                                    expected.iter().enumerate().filter(|(_, p)| **p != VOID)
+                                {
+                                    assert_eq!(
+                                        actual[at], pixel,
+                                        "{w}x{h}, event {eventus}, branch {ramus}, onus {onus}, kappa {kappa}, epoch {epoch_ms}, pixel {at}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The annotation fits logically and after projection for all branches and languages at
+    /// the checked scales, while preserving both symbols (REQ-L5-06). A degenerate surface omits it.
+    #[test]
+    fn aphorism_anchor_bounds() {
+        for (w, h) in [(272, 180), (320, 180), (640, 360), (1920, 1080)] {
+            let comp = compositio(w, h, 6);
+            let mut buffer = std::vec![VOID;usize::from(w)*usize::from(h)];
+            let mut tab = Tabula::new(w, h, &mut buffer).unwrap();
+            for kappa in [-64, 0, 64] {
+                let painter = Pictor::ground(&mut tab, kappa, comp.scene_h, 15);
+                for lingua in [crate::hospes::Lingua::En, crate::hospes::Lingua::Pt] {
+                    let f = Facultates {
+                        width: w,
+                        height: h,
+                        lingua,
+                        ..Facultates::default()
+                    };
+                    for onus in [32, 230] {
+                        for epoch_ms in [NOON, NOON + 12 * 3_600_000] {
+                            for eventus in 0..8 {
+                                for ramus in 0..3 {
+                                    let mut world = Mundus::genesis(7);
+                                    world.verbum =
+                                        world.verbum.with_onus(onus).with_curvatura(kappa);
+                                    world.memoria = world
+                                        .memoria
+                                        .with_eventus(eventus)
+                                        .with_ramus(ramus)
+                                        .with_gradus(400);
+                                    let measures = Indicia {
+                                        epoch_ms,
+                                        ..Indicia::default()
+                                    };
+                                    let regimen = Regimen::default();
+                                    let chord = concentus(&world, &f, &measures, &regimen);
+                                    let sky = sky_region(&comp, w, onus);
+                                    let first =
+                                        crate::signum::caelum::node(sky, eventus, ramus, 0, onus);
+                                    let phrase =
+                                        annales(world.memoria, lingua, false).aphorismus.unwrap();
+                                    let unit = i32::from(comp.s);
+                                    let nominal = (first.0 + 2 * unit, first.1 - 5 * unit);
+                                    let width = (6 * phrase.chars().count() as i32 + 2) * unit;
+                                    let obstacles =
+                                        sky_obstacles(&comp, sky, &chord, &measures, &regimen);
+                                    let anchor = aphorism_anchor(
+                                        &painter,
+                                        nominal,
+                                        width,
+                                        comp.s,
+                                        comp.scene_h,
+                                        obstacles,
+                                    )
+                                    .unwrap();
+                                    let (left, right, top, bottom) = (
+                                        anchor.0 - unit,
+                                        anchor.0 - unit + width,
+                                        anchor.1 - unit,
+                                        anchor.1 + 11 * unit,
+                                    );
+                                    assert!(left >= 0 && right <= i32::from(w));
+                                    assert!(top >= 0 && bottom <= i32::from(comp.scene_h));
+                                    assert!(painter.contains_projection(
+                                        left,
+                                        top,
+                                        width,
+                                        12 * unit
+                                    ));
+                                    assert!(obstacles.iter().flatten().all(
+                                        |&[sx, sy, ex, ey]| right <= sx
+                                            || left >= ex
+                                            || bottom <= sy
+                                            || top >= ey
+                                    ));
+                                    if w == 320
+                                        && eventus == 5
+                                        && ramus == 0
+                                        && onus == 32
+                                        && kappa == 64
+                                        && epoch_ms == NOON
+                                        && lingua == crate::hospes::Lingua::Pt
+                                    {
+                                        assert!(
+                                            anchor.0 < nominal.0,
+                                            "the expanding right edge needs a horizontal correction"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Equal vertical distances prefer the upper anchor, and surfaces too small for the
+    /// padded annotation omit it instead of covering another sign (REQ-L5-06).
+    #[test]
+    fn aphorism_ties_and_degenerate_surface() {
+        let mut buffer = [VOID; 80 * 80];
+        let mut tab = Tabula::new(80, 80, &mut buffer).unwrap();
+        let painter = Pictor::flat(&mut tab);
+        assert_eq!(
+            aphorism_anchor(&painter, (10, 10), 20, 1, 80, [Some([0, 15, 40, 17]), None]),
+            Some((10, 4))
+        );
+        assert_eq!(
+            aphorism_anchor(&painter, (21, 5), 20, 1, 20, [Some([20, 0, 40, 20]), None]),
+            Some((1, 5))
+        );
+        assert_eq!(
+            aphorism_anchor(&painter, (10, 10), 20, 1, 0, [None, None]),
+            None
+        );
+        assert_eq!(
+            aphorism_anchor(&painter, (10, 10), 81, 1, 80, [None, None]),
+            None
+        );
+    }
 
     /// Noon of the 2026 June solstice at −03:00.
     const NOON: i64 = 1_782_054_000_000;
@@ -692,16 +1436,17 @@ mod tests {
             let mut tab = Tabula::new(320, 180, &mut buf).unwrap();
             let mut pictor = Pictor::flat(&mut tab);
             match layer {
-                "sky" => compose_sky(
-                    &mut pictor,
-                    &comp,
-                    comp.sky,
-                    &chord,
-                    &indicia,
-                    &regimen,
-                    0x10,
-                    0b10_1101,
-                ),
+                "sky" => {
+                    let _ = compose_sky(
+                        &mut pictor,
+                        &comp,
+                        comp.sky,
+                        &chord,
+                        &indicia,
+                        &regimen,
+                        &world,
+                    );
+                }
                 "actors" => compose_actors(&mut pictor, &comp, &chord, &indicia, &world),
                 "text" => compose_text(&mut pictor, &comp, &regimen, &world, &LINES, true),
                 _ => draw_frame(&mut pictor, &comp, 32, 255, 0xACE1, 1, 9, 0),
@@ -742,16 +1487,7 @@ mod tests {
             let mut tab = Tabula::new(320, 180, &mut buf).unwrap();
             let mut pictor = Pictor::flat(&mut tab);
             let sky = Rect { w, h, ..comp.sky };
-            compose_sky(
-                &mut pictor,
-                &comp,
-                sky,
-                &chord,
-                &indicia,
-                &regimen,
-                0x10,
-                0b11_1111,
-            );
+            compose_sky(&mut pictor, &comp, sky, &chord, &indicia, &regimen, &world);
             let marks = buf.iter().filter(|&&p| p != VOID).count();
             assert_eq!(marks > 0, drawn, "sky {w}×{h}: {marks} marks");
         }
@@ -1248,6 +1984,72 @@ mod tests {
                 .write_all(&out)
                 .unwrap();
             std::println!("{name}: {:#018x}", fnv1a(&buf));
+        }
+    }
+
+    /// Writes public render samples of the graph's quadrants, masks and dream plinth for
+    /// visual verification (REQ-L2-06, REQ-L5-06, REQ-L5-10).
+    #[test]
+    #[ignore = "writes files; run on request"]
+    fn dump_graph_ppm() {
+        use std::io::Write;
+        let dir = std::env::var("SISYPHIUM_DUMP").unwrap_or_else(|_| "/tmp".into());
+        for (eventus, onus, kappa, night) in [
+            (0, 32, 0, false),
+            (1, 32, 0, false),
+            (2, 32, 0, false),
+            (3, 32, 0, false),
+            (0, 230, 0, false),
+            (1, 230, 0, false),
+            (2, 230, 0, false),
+            (3, 32, -64, false),
+            (1, 32, 0, true),
+            (3, 32, 0, true),
+            (3, 32, -64, true),
+            (3, 32, 64, true),
+            (5, 32, 64, false),
+        ] {
+            let suffix = if night { "-night" } else { "" };
+            let name = std::format!("graph-{eventus}-onus-{onus}-kappa-{kappa}{suffix}");
+            let branch = if eventus == 5 { 0 } else { 2 };
+            let mut m = Mundus::genesis(7);
+            m.memoria = m
+                .memoria
+                .with_eventus(eventus)
+                .with_ramus(branch)
+                .with_gradus(400);
+            m.verbum = m
+                .verbum
+                .with_onus(onus)
+                .with_curvatura(kappa)
+                .with_ascensus(90);
+            let f = Facultates {
+                lingua: crate::hospes::Lingua::Pt,
+                ..Facultates::default()
+            };
+            let i = Indicia {
+                epoch_ms: if night { NOON + 12 * 3_600_000 } else { NOON },
+                ..Indicia::default()
+            };
+            let r = Regimen::default();
+            let mut buf = std::vec![0;320*180];
+            m.render(&f, &i, &r, &mut Tabula::new(320, 180, &mut buf).unwrap());
+            let palette = m.palette(&f, &i, &r);
+            let mut out = b"P6\n320 180\n255\n".to_vec();
+            for &p in &buf {
+                out.extend_from_slice(&palette[usize::from(lum_of(p))]);
+            }
+            std::fs::File::create(std::format!("{dir}/{name}.ppm"))
+                .unwrap()
+                .write_all(&out)
+                .unwrap();
+            let sky = sky_region(&compositio(320, 180, 6), 320, onus);
+            let first = crate::signum::caelum::node(sky, eventus, branch, 0, onus);
+            let aphorism = annales(m.memoria, f.lingua, false).aphorismus.unwrap();
+            std::println!(
+                "{name}: node {first:?}, text right {}, aphorism {aphorism}",
+                first.0 + 2 + 6 * aphorism.chars().count() as i32
+            );
         }
     }
 

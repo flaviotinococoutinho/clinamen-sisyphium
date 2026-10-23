@@ -8,7 +8,7 @@ use crate::arbitrium::{
 };
 use crate::corpus::chip;
 use crate::ephemeris::ephemeris;
-use crate::hospes::{Facultates, Indicia, Nuntius};
+use crate::hospes::{Cellae, Facultates, Indicia, Nuntius, Regimen, Tabula};
 use crate::memoria::{Memoria, RAMUS_EXSPECTANS};
 use crate::natura::galois;
 use crate::sensus::{occlusion, rare};
@@ -123,6 +123,68 @@ impl Mundus {
             verbum: Verbum::new(read_word(head)?),
             memoria: Memoria::new(read_word(tail)?),
         })
+    }
+
+    /// Renders the world's effective chronicle in the chosen stilus (REQ-L4-04, REQ-H-04).
+    pub fn render(
+        &self,
+        facultates: &Facultates,
+        indicia: &Indicia,
+        regimen: &Regimen,
+        tab: &mut Tabula,
+    ) {
+        let text = crate::arbitrium::visible_annales(
+            self.memoria,
+            facultates.lingua,
+            indicia.leaving,
+            regimen,
+            u16::MAX,
+        );
+        let lines = text
+            .lines
+            .get(..usize::from(text.count))
+            .unwrap_or_default();
+        crate::signum::scaena::render(self, facultates, indicia, regimen, lines, tab);
+    }
+
+    /// Renders the world's effective chronicle as cells, bounded by the grid's rows as well
+    /// as its regimen; refuses a scratch with different dimensions (REQ-L4-04, REQ-H-04).
+    #[must_use]
+    pub fn render_cellae(
+        &self,
+        facultates: &Facultates,
+        indicia: &Indicia,
+        regimen: &Regimen,
+        scratch: &mut Tabula,
+        cells: &mut Cellae,
+    ) -> bool {
+        let text = crate::arbitrium::visible_annales(
+            self.memoria,
+            facultates.lingua,
+            indicia.leaving,
+            regimen,
+            cells.rows,
+        );
+        let lines = text
+            .lines
+            .get(..usize::from(text.count))
+            .unwrap_or_default();
+        crate::signum::scaena::render_cellae(
+            self, facultates, indicia, regimen, lines, scratch, cells,
+        )
+    }
+
+    /// The sixteen RGB colors of the world's chord (REQ-L5-02, REQ-L5-11).
+    #[must_use]
+    pub fn palette(
+        &self,
+        facultates: &Facultates,
+        indicia: &Indicia,
+        regimen: &Regimen,
+    ) -> [[u8; 3]; 16] {
+        crate::concentus::palette(&crate::concentus::concentus(
+            self, facultates, indicia, regimen,
+        ))
     }
 
     /// Takes the words that a law returns and adds its announcement to `said` (REQ-L0-05).
@@ -250,6 +312,90 @@ mod tests {
     use crate::transumptio::weight;
     use crate::verbum::{Modus, SEMEN_DEFAULT};
     use std::vec::Vec;
+
+    /// The public render uses the world's chronicle and honours its layer in both media
+    /// (REQ-L4-04, REQ-H-04).
+    #[test]
+    fn render_uses_annales() {
+        use crate::hospes::{ANNALES, Cellae, Regimen, Tabula};
+        use crate::signum::pixel::lum_of;
+        let mut m = Mundus::genesis(1);
+        let f = Facultates::default();
+        let i = Indicia {
+            epoch_ms: NOON,
+            ..Indicia::default()
+        };
+        let r = Regimen::default();
+        let mut buf = std::vec![0; 320 * 180 + 8];
+        for ramus in [3, 1] {
+            m.memoria = m.memoria.with_eventus(3).with_ramus(ramus).with_gradus(300);
+            for enabled in [false, true] {
+                let r = Regimen {
+                    layers: if enabled {
+                        r.layers
+                    } else {
+                        r.layers & !ANNALES
+                    },
+                    ..r
+                };
+                m.render(&f, &i, &r, &mut Tabula::new(320, 180, &mut buf).unwrap());
+                let start = usize::from(crate::spatium::compositio(320, 180, 6).annales.y) * 320;
+                assert_eq!(
+                    buf[start..320 * 180].iter().any(|&p| lum_of(p) == 13),
+                    enabled && ramus != 3
+                );
+                assert!(buf[320 * 180..].iter().all(|&p| p == 0));
+                let mut scratch = [0; 80 * 2 + 8];
+                let mut cells = [0xBEEF; 80 * 2 + 8];
+                assert!(m.render_cellae(
+                    &f,
+                    &i,
+                    &r,
+                    &mut Tabula::new(80, 2, &mut scratch).unwrap(),
+                    &mut Cellae::new(80, 2, &mut cells).unwrap()
+                ));
+                assert_eq!(
+                    cells[..160].iter().any(|&c| (c >> 8) & 15 == 13),
+                    enabled && ramus != 3
+                );
+                assert!(cells[160..].iter().all(|&c| c == 0xBEEF));
+                if enabled && ramus != 3 {
+                    let full = crate::arbitrium::annales(m.memoria, f.lingua, false);
+                    for (row, line) in full.lines[..2].iter().enumerate() {
+                        for (x, ch) in line.chars().enumerate() {
+                            assert_eq!(
+                                cells[row * 80 + x] & 255,
+                                u16::from(crate::signum::littera::cell_glyph(ch))
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            m.palette(&f, &i, &r),
+            crate::concentus::palette(&crate::concentus::concentus(&m, &f, &i, &r))
+        );
+        m.memoria = m.memoria.with_eventus(12).with_gradus(80);
+        let off = Regimen { layers: 0, ..r };
+        m.render(&f, &i, &off, &mut Tabula::new(320, 180, &mut buf).unwrap());
+        assert!(buf[..320 * 180].iter().any(|&p| lum_of(p) == 10));
+        assert!(buf[..320 * 180].iter().all(|&p| lum_of(p) != 13));
+        let mut scratch = [0; 80 * 2];
+        let mut cells = [0; 80 * 2];
+        assert!(m.render_cellae(
+            &f,
+            &i,
+            &off,
+            &mut Tabula::new(80, 2, &mut scratch).unwrap(),
+            &mut Cellae::new(80, 2, &mut cells).unwrap()
+        ));
+        assert_eq!(
+            cells[..80].iter().filter(|&&c| (c >> 8) & 15 == 10).count(),
+            16
+        );
+        assert!(cells.iter().all(|&c| (c >> 8) & 15 != 13));
+    }
 
     /// The solstice noon of `docs/08-verificacao.md` §7, 2026-06-21 12:00 at −03:00 (circadian
     /// phase 128), in milliseconds since the epoch.

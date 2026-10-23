@@ -11,7 +11,7 @@
 pub mod annales_en;
 pub mod annales_pt;
 
-use crate::hospes::{Lingua, Nuntius};
+use crate::hospes::{ANNALES, Lingua, Nuntius, Regimen};
 use crate::memoria::{Memoria, RAMUS_EXSPECTANS};
 use crate::natura::{R_INF, logistic_r, mix, wind};
 use crate::verbum::{Modus, Verbum};
@@ -149,8 +149,11 @@ pub struct Annales {
 
 impl Annales {
     /// Appends a visible line and makes its register the register of the text; a text that
-    /// already has six lines gives the line the place of the sixth.
-    fn push(&mut self, line: &'static str, registrum: Registrum) {
+    /// reaches the effective line limit keeps its prefix (REQ-L4-04, REQ-L5-11).
+    fn push(&mut self, limit: u8, line: &'static str, registrum: Registrum) {
+        if self.count >= limit && limit <= SIXTH {
+            return;
+        }
         let at = self.count.min(SIXTH);
         if let Some(slot) = self.lines.get_mut(usize::from(at)) {
             *slot = line;
@@ -220,6 +223,37 @@ const fn codex(lingua: Lingua) -> &'static Codex {
 ///    civil for k in {2, 3}.
 #[must_use]
 pub fn annales(memoria: Memoria, lingua: Lingua, leaving: bool) -> Annales {
+    select_annales(memoria, lingua, leaving, 6)
+}
+
+/// The effective chronicle prefix and its last register (REQ-L4-04, REQ-L5-11): ANNALES off
+/// selects no lines; otherwise at most `regimen.lines` and `rows`. Raster callers without a
+/// row limit pass `u16::MAX`. The aphorism remains available to the independent CAELUM layer.
+#[must_use]
+pub fn visible_annales(
+    memoria: Memoria,
+    lingua: Lingua,
+    leaving: bool,
+    regimen: &Regimen,
+    rows: u16,
+) -> Annales {
+    select_annales(memoria, lingua, leaving, line_limit(regimen, rows))
+}
+
+/// The effective prefix capacity of the chronicle: zero without ANNALES, otherwise the
+/// smallest of six corpus lines, the regimen and the medium's rows (REQ-L4-04, REQ-L5-11).
+#[must_use]
+pub fn line_limit(regimen: &Regimen, rows: u16) -> u8 {
+    if regimen.has(ANNALES) {
+        u16::from(regimen.lines).min(rows).min(6) as u8
+    } else {
+        0
+    }
+}
+
+/// Applies the complete selection law once, appending only lines within the effective prefix
+/// (REQ-L4-04, REQ-L4-08, REQ-L5-11).
+fn select_annales(memoria: Memoria, lingua: Lingua, leaving: bool, limit: u8) -> Annales {
     let codex = codex(lingua);
     let eventus = memoria.eventus();
     let ramus = memoria.ramus();
@@ -237,7 +271,7 @@ pub fn annales(memoria: Memoria, lingua: Lingua, leaving: bool) -> Annales {
                 .get(usize::from(eventus))
                 .and_then(|branches| branches.get(usize::from(ramus)));
             for (line, rung) in branch.into_iter().flatten().copied().take(shown).zip(0u8..) {
-                text.push(line, registrum_of(rung));
+                text.push(limit, line, registrum_of(rung));
             }
             if shown > 0 {
                 text.aphorismus = codex.aphorismi.get(usize::from(eventus)).copied();
@@ -245,13 +279,13 @@ pub fn annales(memoria: Memoria, lingua: Lingua, leaving: bool) -> Annales {
         }
         METALEPSIS => {
             for line in [codex.metalepsis].into_iter().take(shown) {
-                text.push(line, Registrum::Abstractum);
+                text.push(limit, line, Registrum::Abstractum);
             }
         }
         AGNITIO => {
             let registers = [Registrum::Intimum, Registrum::Abstractum];
             for (line, registrum) in codex.agnitio.iter().copied().zip(registers).take(shown) {
-                text.push(line, registrum);
+                text.push(limit, line, registrum);
             }
         }
         DIOGENES..=DAEMON => {
@@ -263,7 +297,7 @@ pub fn annales(memoria: Memoria, lingua: Lingua, leaving: bool) -> Annales {
             };
             let lines = codex.personae.get(usize::from(persona)).copied();
             for line in lines.into_iter().take(shown) {
-                text.push(line, registrum);
+                text.push(limit, line, registrum);
             }
         }
         _ => {}
@@ -277,7 +311,7 @@ pub fn annales(memoria: Memoria, lingua: Lingua, leaving: bool) -> Annales {
             Registrum::Civile
         };
         if let Some(line) = codex.interruptio.get(k).copied() {
-            text.push(line, registrum);
+            text.push(limit, line, registrum);
         }
     }
     text
@@ -664,6 +698,73 @@ pub const fn contemplating(v: Verbum, m: Memoria) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// Limiting the chronicle keeps a prefix and the register of its last line, with the
+    /// interruption only when that line fits (REQ-L4-04, REQ-L4-08, REQ-L5-11).
+    #[test]
+    fn effective_annales_limits() {
+        use crate::hospes::{ANNALES, Regimen};
+        for lingua in [Lingua::En, Lingua::Pt] {
+            for eventus in 0..16 {
+                for ramus in 0..4 {
+                    for leaving in [false, true] {
+                        let m = Memoria::new(0)
+                            .with_eventus(eventus)
+                            .with_ramus(ramus)
+                            .with_gradus(400);
+                        let full = annales(m, lingua, leaving);
+                        for lines in [0, 1, 2, 6] {
+                            for rows in [0u16, 1, 2, 8] {
+                                let r = Regimen {
+                                    lines,
+                                    ..Regimen::default()
+                                };
+                                let effective = visible_annales(m, lingua, leaving, &r, rows);
+                                let count = full.count.min(lines).min(rows as u8);
+                                assert_eq!(effective.count, count);
+                                assert_eq!(
+                                    effective.lines[..usize::from(count)],
+                                    full.lines[..usize::from(count)]
+                                );
+                                assert!(
+                                    effective.lines[usize::from(count)..]
+                                        .iter()
+                                        .all(|l| l.is_empty())
+                                );
+                                let expected = if count == 0 {
+                                    Registrum::Intimum
+                                } else if count == full.count {
+                                    full.registrum
+                                } else {
+                                    match eventus {
+                                        12 if count == 1 => Registrum::Intimum,
+                                        11 | 12 | 14 => Registrum::Abstractum,
+                                        13 => Registrum::Vivum,
+                                        15 => Registrum::Epochale,
+                                        _ => registrum_of(count - 1),
+                                    }
+                                };
+                                assert_eq!(
+                                    effective.registrum, expected,
+                                    "event {eventus}, branch {ramus}, leaving {leaving}, lines {lines}, rows {rows}"
+                                );
+                                let off = Regimen {
+                                    layers: r.layers & !ANNALES,
+                                    ..r
+                                };
+                                let silent = visible_annales(m, lingua, leaving, &off, rows);
+                                assert_eq!(silent.count, 0);
+                                assert_eq!(silent.registrum, Registrum::Intimum);
+                                assert_eq!(
+                                    silent.aphorismus, full.aphorismus,
+                                    "the sky has its own layer"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     use super::*;
     use crate::signum::littera::{ACUTAE, ORDO};
     use crate::spatium::Fx;
@@ -1010,7 +1111,7 @@ mod tests {
             registrum: Registrum::Abstractum,
             aphorismus: None,
         };
-        text.push("G", Registrum::Civile);
+        text.push(6, "G", Registrum::Civile);
         assert_eq!(text.lines, ["A", "B", "C", "D", "E", "G"]);
         assert_eq!((text.count, text.registrum), (6, Registrum::Civile));
     }
