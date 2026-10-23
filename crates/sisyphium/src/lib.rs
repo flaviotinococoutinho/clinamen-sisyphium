@@ -42,6 +42,7 @@ extern crate std;
 pub mod arbitrium;
 mod campi;
 pub mod concentus;
+pub mod consilium;
 pub mod corpus;
 pub mod ephemeris;
 pub mod hospes;
