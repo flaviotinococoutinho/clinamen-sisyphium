@@ -209,7 +209,7 @@ fn moon_geometry(sky: Rect, chord: &Concentus) -> Option<(i32, i32, i32)> {
 
 /// Logical rectangles protected from the aphorism: the hexagram's twelve-scale-unit cell
 /// (including the centred stroke) and the moon's full disc (REQ-L5-06..08), expanded by one
-/// scale unit to separate projected pixels under quantization. Edges are exclusive.
+/// scale unit for logical spacing; projected separation is checked independently. Edges are exclusive.
 fn sky_obstacles(
     comp: &Compositio,
     sky: Rect,
@@ -248,11 +248,47 @@ fn sky_obstacles(
     })
 }
 
+/// The logical top nearest a projected horizontal boundary (REQ-L5-06): the first whose
+/// projected top reaches `boundary` when `below`, otherwise the last whose bottom stays
+/// before it. Within the logical frame and operational curvature ±64, both projected vertical
+/// bounds are nondecreasing with logical y. Binary search reuses `plot`'s bounds and coverage.
+fn projected_boundary(
+    pictor: &Pictor,
+    left: i32,
+    size: (i32, i32),
+    last: i32,
+    boundary: i64,
+    below: bool,
+) -> Option<i32> {
+    let mut low = 0i32;
+    let mut high = last.wrapping_add(1);
+    while low < high {
+        let middle = low.wrapping_add(high.wrapping_sub(low) / 2);
+        let [_, top, _, bottom] = pictor.projected_bounds(left, middle, size.0, size.1)?;
+        if if below {
+            top >= boundary
+        } else {
+            bottom > boundary
+        } {
+            high = middle;
+        } else {
+            low = middle.wrapping_add(1);
+        }
+    }
+    if below {
+        (low <= last).then_some(low)
+    } else {
+        (low > 0).then_some(low.wrapping_sub(1))
+    }
+}
+
 /// The nearest usable aphorism anchor (REQ-L5-06): at nominal x, choose among nominal y and
 /// positions immediately above/below the protected symbols, by least vertical displacement,
 /// ties above. If none fits, try integer horizontal distances in increasing order, left before
-/// right, with the same vertical candidates. Every box stays inside the logical frame/scene
-/// and the projected writing region. No position means no annotation on that small surface.
+/// right. After exhausting that search, repeat its x order with at most six vertical candidates
+/// at projected frame/symbol boundaries, found in logarithmic time. Every box stays inside the
+/// logical frame/scene and projected writing region, disjoint from both symbols in both spaces.
+/// No position means no annotation on that small surface.
 fn aphorism_anchor(
     pictor: &Pictor,
     nominal: (i32, i32),
@@ -267,38 +303,80 @@ fn aphorism_anchor(
     if height > i32::from(scene_h) || width > frame_width {
         return None;
     }
+    let projected = obstacles.map(|bounds| {
+        bounds.and_then(|[left, top, right, bottom]| {
+            pictor.projected_bounds(
+                left,
+                top,
+                right.wrapping_sub(left),
+                bottom.wrapping_sub(top),
+            )
+        })
+    });
     let below = unit.wrapping_mul(11);
-    for distance in 0..=frame_width {
-        for x in [
-            nominal.0.wrapping_sub(distance),
-            nominal.0.wrapping_add(distance),
-        ] {
-            let left = x.wrapping_sub(unit);
-            let right = left.wrapping_add(width);
-            if left < 0 || right > frame_width {
-                continue;
-            }
-            let sides = obstacles
-                .into_iter()
-                .flatten()
-                .flat_map(|[_, top, _, bottom]| {
-                    [top.wrapping_sub(below), bottom.wrapping_add(unit)]
-                });
-            let chosen = core::iter::once(nominal.1)
-                .chain(sides)
-                .filter(|&y| {
-                    let top = y.wrapping_sub(unit);
-                    let bottom = y.wrapping_add(below);
-                    top >= 0
-                        && bottom <= i32::from(scene_h)
-                        && pictor.contains_projection(left, top, width, height)
-                        && obstacles.iter().flatten().all(|&[sx, sy, ex, ey]| {
-                            right <= sx || left >= ex || bottom <= sy || top >= ey
-                        })
-                })
-                .min_by_key(|&y| (y.wrapping_sub(nominal.1).unsigned_abs(), y));
-            if let Some(y) = chosen {
-                return Some((x, y));
+    for fallback in [false, true] {
+        for distance in 0..=frame_width {
+            for x in [
+                nominal.0.wrapping_sub(distance),
+                nominal.0.wrapping_add(distance),
+            ] {
+                let left = x.wrapping_sub(unit);
+                let right = left.wrapping_add(width);
+                if left < 0 || right > frame_width {
+                    continue;
+                }
+                let sides = obstacles
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|[_, top, _, bottom]| {
+                        [top.wrapping_sub(below), bottom.wrapping_add(unit)]
+                    });
+                let boundaries = core::iter::once((0, true))
+                    .chain(core::iter::once((i64::from(scene_h), false)))
+                    .chain(
+                        projected
+                            .into_iter()
+                            .flatten()
+                            .flat_map(|[_, top, _, bottom]| [(top, false), (bottom, true)]),
+                    );
+                let extra = boundaries
+                    .filter(|_| fallback)
+                    .filter_map(|(boundary, below)| {
+                        projected_boundary(
+                            pictor,
+                            left,
+                            (width, height),
+                            i32::from(scene_h).wrapping_sub(height),
+                            boundary,
+                            below,
+                        )
+                        .map(|top| top.wrapping_add(unit))
+                    });
+                let chosen = core::iter::once(nominal.1)
+                    .chain(sides)
+                    .filter(|_| !fallback)
+                    .chain(extra)
+                    .filter(|&y| {
+                        let top = y.wrapping_sub(unit);
+                        let bottom = y.wrapping_add(below);
+                        top >= 0
+                            && bottom <= i32::from(scene_h)
+                            && pictor.contains_projection(left, top, width, height)
+                            && obstacles.iter().flatten().all(|&[sx, sy, ex, ey]| {
+                                right <= sx || left >= ex || bottom <= sy || top >= ey
+                            })
+                            && pictor
+                                .projected_bounds(left, top, width, height)
+                                .is_some_and(|[px, py, qx, qy]| {
+                                    projected.iter().flatten().all(|&[sx, sy, ex, ey]| {
+                                        qx <= sx || px >= ex || qy <= sy || py >= ey
+                                    })
+                                })
+                    })
+                    .min_by_key(|&y| (y.wrapping_sub(nominal.1).unsigned_abs(), y));
+                if let Some(y) = chosen {
+                    return Some((x, y));
+                }
             }
         }
     }
@@ -1087,7 +1165,13 @@ mod tests {
                 let mut expected = std::vec![VOID;320*180];
                 let mut tab = Tabula::new(320, 180, &mut expected).unwrap();
                 let mut painter = Pictor::ground(&mut tab, kappa, comp.scene_h, 15);
-                let (x, y) = (first.0 + 2, if eventus == 1 || kappa > 0 { 30 } else { 4 });
+                let (x, y) = match (eventus, kappa) {
+                    (_, -64) => (99, 4),
+                    (1, 0) => (first.0 + 2, 30),
+                    (1, _) => (98, 24),
+                    (_, 0) => (first.0 + 2, 4),
+                    _ => (98, 30),
+                };
                 painter.fill(
                     x - 1,
                     y - 1,
@@ -1119,7 +1203,15 @@ mod tests {
     /// contraction and expansion; larger frames exercise scales two and six (REQ-L5-06..08).
     #[test]
     fn aphorism_preserves_symbols() {
-        for (w, h) in [(320u16, 180u16), (640, 360), (1920, 1080)] {
+        for (w, h) in [
+            (320u16, 320u16),
+            (321, 321),
+            (360, 640),
+            (640, 640),
+            (320, 180),
+            (640, 360),
+            (1920, 1080),
+        ] {
             for eventus in 0..8 {
                 if w > 320 && ![1, 3].contains(&eventus) {
                     continue;
@@ -1188,11 +1280,37 @@ mod tests {
         }
     }
 
+    /// The projected annotation box is disjoint from every protected symbol (REQ-L5-06).
+    fn assert_projected_separation(
+        painter: &Pictor,
+        rect: [i32; 4],
+        obstacles: [Option<[i32; 4]>; 2],
+    ) {
+        let [left, top, width, height] = rect;
+        let [px, py, qx, qy] = painter.projected_bounds(left, top, width, height).unwrap();
+        for [sx, sy, ex, ey] in obstacles.into_iter().flatten() {
+            let [ox, oy, dx, dy] = painter.projected_bounds(sx, sy, ex - sx, ey - sy).unwrap();
+            assert!(
+                qx <= ox || px >= dx || qy <= oy || py >= dy,
+                "annotation {rect:?}, symbol {sx},{sy},{ex},{ey}"
+            );
+        }
+    }
+
     /// The annotation fits logically and after projection for all branches and languages at
     /// the checked scales, while preserving both symbols (REQ-L5-06). A degenerate surface omits it.
     #[test]
     fn aphorism_anchor_bounds() {
-        for (w, h) in [(272, 180), (320, 180), (640, 360), (1920, 1080)] {
+        for (w, h) in [
+            (272, 180),
+            (320, 180),
+            (320, 320),
+            (321, 321),
+            (360, 640),
+            (640, 640),
+            (640, 360),
+            (1920, 1080),
+        ] {
             let comp = compositio(w, h, 6);
             let mut buffer = std::vec![VOID;usize::from(w)*usize::from(h)];
             let mut tab = Tabula::new(w, h, &mut buffer).unwrap();
@@ -1234,14 +1352,8 @@ mod tests {
                                     let obstacles =
                                         sky_obstacles(&comp, sky, &chord, &measures, &regimen);
                                     let anchor = aphorism_anchor(
-                                        &painter,
-                                        nominal,
-                                        width,
-                                        comp.s,
-                                        comp.scene_h,
-                                        obstacles,
-                                    )
-                                    .unwrap();
+                                        &painter, nominal, width, comp.s, comp.scene_h, obstacles,
+                                    ).unwrap_or_else(|| panic!("no anchor: {w}x{h}, event {eventus}, branch {ramus}, onus {onus}, kappa {kappa}, epoch {epoch_ms}, language {lingua:?}"));
                                     let (left, right, top, bottom) = (
                                         anchor.0 - unit,
                                         anchor.0 - unit + width,
@@ -1262,7 +1374,13 @@ mod tests {
                                             || bottom <= sy
                                             || top >= ey
                                     ));
+                                    assert_projected_separation(
+                                        &painter,
+                                        [left, top, width, 12 * unit],
+                                        obstacles,
+                                    );
                                     if w == 320
+                                        && h == 180
                                         && eventus == 5
                                         && ramus == 0
                                         && onus == 32
@@ -1277,6 +1395,97 @@ mod tests {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Projected-boundary fallback keeps the annotation on small, square and portrait frames
+    /// whose original vertical candidates cannot fit under expansion (REQ-L5-06).
+    #[test]
+    fn aphorism_projection_fallback() {
+        for (w, h, eventus, ramus, night, lingua) in [
+            (272u16, 180u16, 2, 0, true, crate::hospes::Lingua::Pt),
+            (320, 320, 0, 0, false, crate::hospes::Lingua::En),
+            (360, 640, 3, 2, true, crate::hospes::Lingua::Pt),
+        ] {
+            let mut world = Mundus::genesis(7);
+            world.verbum = world.verbum.with_curvatura(64).with_onus(32);
+            world.memoria = world
+                .memoria
+                .with_eventus(eventus)
+                .with_ramus(ramus)
+                .with_gradus(400);
+            let f = Facultates {
+                width: w,
+                height: h,
+                lingua,
+                ..Facultates::default()
+            };
+            let i = Indicia {
+                epoch_ms: if night { NOON + 12 * 3_600_000 } else { NOON },
+                ..Indicia::default()
+            };
+            let r = Regimen::default();
+            let chord = concentus(&world, &f, &i, &r);
+            let comp = compositio(w, h, 6);
+            let first = crate::signum::caelum::node(comp.sky, eventus, ramus, 0, 32);
+            let phrase = annales(world.memoria, lingua, false).aphorismus.unwrap();
+            let mut pixels = std::vec![VOID; usize::from(w) * usize::from(h)];
+            let mut tab = Tabula::new(w, h, &mut pixels).unwrap();
+            let painter = Pictor::ground(&mut tab, 64, comp.scene_h, 15);
+            let anchor = aphorism_anchor(
+                &painter,
+                (first.0 + 2, first.1 - 5),
+                6 * phrase.chars().count() as i32 + 2,
+                1,
+                comp.scene_h,
+                sky_obstacles(&comp, comp.sky, &chord, &i, &r),
+            );
+            let expected = match w {
+                272 => (33, 91),
+                320 => (90, 44),
+                _ => (147, 187),
+            };
+            assert_eq!(anchor, Some(expected), "{w}x{h}");
+        }
+    }
+
+    /// Binary boundary candidates agree with exhaustive rows on small portrait, square and
+    /// landscape grids; projected upper and lower bounds remain monotone (REQ-L2-06, REQ-L5-06).
+    #[test]
+    fn projected_boundary_matches_rows() {
+        for (w, h) in [(32u16, 24u16), (24, 32), (32, 32)] {
+            let mut pixels = std::vec![VOID; usize::from(w) * usize::from(h)];
+            let mut tab = Tabula::new(w, h, &mut pixels).unwrap();
+            for kappa in [-64, -32, 0, 32, 64] {
+                let painter = Pictor::new(&mut tab, kappa);
+                for left in 0..=i32::from(w) - 9 {
+                    let last = i32::from(h) - 6;
+                    let bounds: Vec<[i64; 4]> = (0..=last)
+                        .map(|top| painter.projected_bounds(left, top, 9, 6).unwrap())
+                        .collect();
+                    for pair in bounds.windows(2) {
+                        assert!(
+                            pair[0][1] <= pair[1][1] && pair[0][3] <= pair[1][3],
+                            "{w}x{h}, curvature {kappa}, x {left}"
+                        );
+                    }
+                    for boundary in (-16..=64).step_by(4) {
+                        for below in [false, true] {
+                            let expected = if below {
+                                bounds.iter().position(|b| b[1] >= boundary)
+                            } else {
+                                bounds.iter().rposition(|b| b[3] <= boundary)
+                            }
+                            .map(|at| at as i32);
+                            assert_eq!(
+                                projected_boundary(&painter, left, (9, 6), last, boundary, below),
+                                expected,
+                                "{w}x{h}, curvature {kappa}, x {left}, boundary {boundary}, below {below}"
+                            );
                         }
                     }
                 }
@@ -1994,62 +2203,74 @@ mod tests {
     fn dump_graph_ppm() {
         use std::io::Write;
         let dir = std::env::var("SISYPHIUM_DUMP").unwrap_or_else(|_| "/tmp".into());
-        for (eventus, onus, kappa, night) in [
-            (0, 32, 0, false),
-            (1, 32, 0, false),
-            (2, 32, 0, false),
-            (3, 32, 0, false),
-            (0, 230, 0, false),
-            (1, 230, 0, false),
-            (2, 230, 0, false),
-            (3, 32, -64, false),
-            (1, 32, 0, true),
-            (3, 32, 0, true),
-            (3, 32, -64, true),
-            (3, 32, 64, true),
-            (5, 32, 64, false),
-        ] {
-            let suffix = if night { "-night" } else { "" };
-            let name = std::format!("graph-{eventus}-onus-{onus}-kappa-{kappa}{suffix}");
-            let branch = if eventus == 5 { 0 } else { 2 };
-            let mut m = Mundus::genesis(7);
-            m.memoria = m
-                .memoria
-                .with_eventus(eventus)
-                .with_ramus(branch)
-                .with_gradus(400);
-            m.verbum = m
-                .verbum
-                .with_onus(onus)
-                .with_curvatura(kappa)
-                .with_ascensus(90);
-            let f = Facultates {
-                lingua: crate::hospes::Lingua::Pt,
-                ..Facultates::default()
-            };
-            let i = Indicia {
-                epoch_ms: if night { NOON + 12 * 3_600_000 } else { NOON },
-                ..Indicia::default()
-            };
-            let r = Regimen::default();
-            let mut buf = std::vec![0;320*180];
-            m.render(&f, &i, &r, &mut Tabula::new(320, 180, &mut buf).unwrap());
-            let palette = m.palette(&f, &i, &r);
-            let mut out = b"P6\n320 180\n255\n".to_vec();
-            for &p in &buf {
-                out.extend_from_slice(&palette[usize::from(lum_of(p))]);
+        for (w, h) in [(320u16, 180u16), (272, 180), (320, 320), (360, 640)] {
+            for (eventus, onus, kappa, night) in [
+                (0, 32, 0, false),
+                (1, 32, 0, false),
+                (2, 32, 0, false),
+                (3, 32, 0, false),
+                (0, 230, 0, false),
+                (1, 230, 0, false),
+                (2, 230, 0, false),
+                (3, 32, -64, false),
+                (1, 32, 0, true),
+                (3, 32, 0, true),
+                (3, 32, -64, true),
+                (3, 32, 64, true),
+                (5, 32, 64, false),
+                (0, 32, 64, false),
+                (2, 32, 64, true),
+            ] {
+                let suffix = if night { "-night" } else { "" };
+                let dimensions = if w == 320 && h == 180 {
+                    std::string::String::new()
+                } else {
+                    std::format!("-{w}x{h}")
+                };
+                let name =
+                    std::format!("graph-{eventus}-onus-{onus}-kappa-{kappa}{suffix}{dimensions}");
+                let branch = if eventus == 5 { 0 } else { 2 };
+                let mut m = Mundus::genesis(7);
+                m.memoria = m
+                    .memoria
+                    .with_eventus(eventus)
+                    .with_ramus(branch)
+                    .with_gradus(400);
+                m.verbum = m
+                    .verbum
+                    .with_onus(onus)
+                    .with_curvatura(kappa)
+                    .with_ascensus(90);
+                let f = Facultates {
+                    width: w,
+                    height: h,
+                    lingua: crate::hospes::Lingua::Pt,
+                    ..Facultates::default()
+                };
+                let i = Indicia {
+                    epoch_ms: if night { NOON + 12 * 3_600_000 } else { NOON },
+                    ..Indicia::default()
+                };
+                let r = Regimen::default();
+                let mut buf = std::vec![0;usize::from(w)*usize::from(h)];
+                m.render(&f, &i, &r, &mut Tabula::new(w, h, &mut buf).unwrap());
+                let palette = m.palette(&f, &i, &r);
+                let mut out = std::format!("P6\n{w} {h}\n255\n").into_bytes();
+                for &p in &buf {
+                    out.extend_from_slice(&palette[usize::from(lum_of(p))]);
+                }
+                std::fs::File::create(std::format!("{dir}/{name}.ppm"))
+                    .unwrap()
+                    .write_all(&out)
+                    .unwrap();
+                let sky = sky_region(&compositio(w, h, 6), w, onus);
+                let first = crate::signum::caelum::node(sky, eventus, branch, 0, onus);
+                let aphorism = annales(m.memoria, f.lingua, false).aphorismus.unwrap();
+                std::println!(
+                    "{name}: node {first:?}, text right {}, aphorism {aphorism}",
+                    first.0 + 2 + 6 * aphorism.chars().count() as i32
+                );
             }
-            std::fs::File::create(std::format!("{dir}/{name}.ppm"))
-                .unwrap()
-                .write_all(&out)
-                .unwrap();
-            let sky = sky_region(&compositio(320, 180, 6), 320, onus);
-            let first = crate::signum::caelum::node(sky, eventus, branch, 0, onus);
-            let aphorism = annales(m.memoria, f.lingua, false).aphorismus.unwrap();
-            std::println!(
-                "{name}: node {first:?}, text right {}, aphorism {aphorism}",
-                first.0 + 2 + 6 * aphorism.chars().count() as i32
-            );
         }
     }
 

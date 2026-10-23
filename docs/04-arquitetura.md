@@ -155,13 +155,20 @@ elementos passam pela projeção de curvatura):
    ardósia de (6·glifos+2)·s por 12s em (x−s,y−s), sob a projeção, estrato 2 e recorte
    projetado em y < S. A âncora nominal é (nó0.x+2s,nó0.y−5s). A caixa
    do hexagrama ativo (incluindo espessura) e a caixa do disco lunar noturno iluminado,
-   expandidas em 1s para separar pixels projetados, são protegidas. Entre y nominal e as
+   expandidas em 1s como respiro lógico, são protegidas. Entre y nominal e as
    posições imediatamente acima/abaixo de cada caixa, vence o menor deslocamento que caiba
-   em 0..S, mantenha a caixa projetada dentro do quadro acima do plinto e evite ambas,
-   desempate pelo menor y. Sem candidato com x nominal, tenta distâncias horizontais inteiras
+   em 0..S, mantenha a caixa projetada dentro do quadro acima do plinto e evite ambas nos
+   espaços lógico e projetado, desempate pelo menor y. Os limites projetados reutilizam
+   a projeção e a cobertura de `plot`; somam separadamente o maior bloco às coordenadas
+   máximas, incluindo degraus de cobertura entre as amostras. Sem candidato com x nominal, tenta distâncias horizontais inteiras
    crescentes, esquerda antes de direita em empate, limitadas pela largura do quadro, com os
    mesmos candidatos verticais. Vence a primeira posição viável; a caixa também precisa caber
-   logicamente na largura. Sem posição viável, omite o aforismo nesse quadro;
+   logicamente na largura. Esgotada essa busca, repete a ordem horizontal com até seis
+   candidatos nas fronteiras projetadas do quadro e dos dois signos (topo/base e acima/abaixo).
+   A busca binária usa limites verticais não decrescentes na altura lógica, dentro do quadro
+   e em κ operacional ±64; o custo adicional é O(W·log S), sem varredura de área. Cada
+   candidato passa pela validação completa de contenção e disjunção. Sem posição viável,
+   omite o aforismo nesse quadro;
 6. crônicas com `Pictor::flat`, fora da projeção; após agnitio, o `Verbum` presente em
    hexadecimal sob a projeção da cena (estrato 0);
 7. Bicolor: limiar de Bayer sobre a luminância; Littera: mapa para a rampa de glifos.
