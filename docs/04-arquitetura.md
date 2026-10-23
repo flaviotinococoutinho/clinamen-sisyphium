@@ -121,7 +121,11 @@ Protocolo por sessão:
    a cada `interval_ms` chama `render` (ou `render_cellae`), mapeia a luminância pela paleta e
    exibe. Hospedeiro estático: a cada execução chama
    `advance(&facultates, &indicia, ticks, tick_ms)` com os ticks decorridos (REQ-H-06) e depois
-   `render`. Reavalia `consilium` quando a faixa de energia, as facultates ou o `modus` mudam.
+   `render`. A cada medida e após a evolução do mundo, compara as facultates, a faixa de
+   energia, o `modus`, o orçamento calculado e a chave semântica de REQ-C-05; reavalia
+   `consilium` quando algum deles muda. Essa comparação não executa a busca incondicionalmente
+   em todo tick. Em `tabula`, o tempo decorrido vem do `mtime` do próprio arquivo de estado,
+   conforme REQ-H-06; uma época sintética exige contagem explícita de ticks.
 5. Em oclusão, chama `step(&facultates, &indicia)` uma única vez com `occluded = true` e
    suspende a cadência.
 6. Antes de ocultar a obra por retorno do observador, chama `step` e `render` com
@@ -227,7 +231,7 @@ anúncios dos seus ticks. As razões da ordem:
 
 | Hospedeiro | Mede | Exibe | Persistência |
 | --- | --- | --- | --- |
-| `tabula` | argumentos: `--epoch`, `--energy`, `--seism`, `--lingua`, `--width`, `--height`, `--stilus`, `--state`; recupera o tempo decorrido com `advance` | arquivo PPM ou PNG | arquivo de 32 dígitos e época da última execução |
+| `tabula` | argumentos: `--epoch`, `--ticks`, `--energy`, `--seism`, `--lingua`, `--width`, `--height`, `--stilus`, `--state`; mede o tempo decorrido pelo `mtime` do próprio arquivo de estado e chama `advance` (REQ-H-06); `--epoch` sintético exige `--ticks` | arquivo PPM ou PNG | arquivo de exatamente 32 dígitos; `mtime` como medida externa |
 | `textus` | tamanho do terminal; relógio; energia por argumento ou leitura do sistema quando disponível | sequências ANSI; Littera nativo ou meio-blocos `▀▄` em 16 tons | arquivo de 32 dígitos |
 | `limen` | nada | nada | nada; o chamador persiste |
 | `hosts/macos` | `pmset` (energia), `sw_vers` (versão), tamanho da tela | `osascript` define a imagem da mesa; `launchd` agenda | arquivo em `~/Library/Application Support/sisyphium/` |

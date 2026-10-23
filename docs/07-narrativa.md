@@ -88,12 +88,12 @@ Civilizações e épocas das consequências: uma por ramus, 24 no total, sem rep
 
 ## 6. Somnium e agnitio
 
-Entrada sem aviso: a curvatura cresce em módulo; as retas viram arcos; a gravidade roda; a rocha
-pode flutuar acima da figura; a figura pode caminhar pela face inferior da encosta. Nada no texto
-anuncia o sonho. Saída por estímulo externo: num único quadro, a geometria volta ao plano e a
-figura está adormecida na base, a cabeça contra a rocha; a crônica imprime duas linhas (registro
-íntimo, depois abstrato); o `Verbum` daquela noite aparece em hexadecimal no canto superior
-direito por 240 ticks.
+Entrada sem aviso: a curvatura cresce em módulo e a projeção radial deforma os traços da cena
+(REQ-L2-06, REQ-L4-11). Nada no texto anuncia o sonho. Saída por estímulo externo: num único
+quadro, a geometria volta ao plano e a figura está adormecida na base, a cabeça contra a rocha;
+a crônica revela duas linhas pelos deslocamentos de §8 (registro íntimo, depois abstrato).
+O `Verbum` presente em cada quadro aparece em hexadecimal no canto superior direito por
+240 ticks; os dígitos acompanham a evolução da palavra durante a agnitio (REQ-L8-02).
 
 ## 7. Interrupção e metalepse
 

@@ -5,8 +5,11 @@
 `consilium(&Facultates, &Mundus, energy) -> Regimen` é a camada entre a situação narrativa e a
 forma visível. Recebe `Facultates` (medidas do meio: dimensões, cor, cadência, entradas,
 computação), a energia e o `Mundus` (situação: modus, onus, tranquillitas, curvatura, ramus,
-eventus, clausurae) e devolve um `Regimen`. O hospedeiro reavalia
-quando a faixa de energia, as facultates ou o modus mudam.
+eventus, clausurae) e devolve um `Regimen`. O hospedeiro reavalia quando mudam as facultates, a
+faixa de energia, o modus, o orçamento calculado ou a chave semântica definida em REQ-C-05.
+O orçamento pode mudar dentro da mesma faixa de energia. A cada medida e após a evolução do
+mundo, o hospedeiro compara essas condições; a busca ocorre nas transições, sem execução
+incondicional em todo tick.
 
 ## 2. Espaço de regimina
 
