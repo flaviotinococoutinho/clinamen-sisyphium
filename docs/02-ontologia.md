@@ -66,7 +66,7 @@ Termos definidos. Grafia única. O nome no código é o termo em latim.
 | Annales | `Annales` | Crônica: sequência de 5 linhas com deslocamento em ticks, uma por degrau da escada de registros, do íntimo ao abstrato | _Samyutta Nikaya_ 12.21; Tácito |
 | Persona | `Persona` | Figura que aparece sob condição de efeméride e estado: Diógenes, Heráclito, o daemon | Diógenes Laércio VI; Heráclito B12; Nietzsche §341 |
 | Agnitio | `agnitio` | Reconhecimento: ao sair do somnium, a figura está adormecida na base; a ascensão não ocorreu | Aristóteles, _Poética_ 11 |
-| Contemplação | `contemplating` | Estado da figura que não sobe: modo Quies, persona presente (`eventus` 13..=15) ou sono, os 64 ticks que seguem a agnitio; não há passo | `03-especificacao.md` REQ-L4-05, REQ-L4-06 |
+| Contemplação | `contemplating` | Estado da figura que não sobe: modo Quies, persona presente (`eventus` 13..=15, independentemente de `ramus` e `gradus`) ou sono, os 64 ticks que seguem a agnitio; não há passo | `03-especificacao.md` REQ-L4-05, REQ-L4-06 |
 | Regimen | `Regimen` | Configuração escolhida por consilium: stilus, estratos, intervalo, camadas, linhas | Simon, 1955 |
 | Stilus | `Stilus` | Idioma visual: Creta, Musivum, Littera, Bicolor | `05-estetica.md` |
 | Creta | `Stilus::Creta` | Giz sobre ardósia: linhas de 1 px em 16 tons, preenchimento por pontilhado | — |

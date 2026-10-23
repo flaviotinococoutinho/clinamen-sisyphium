@@ -3,6 +3,7 @@
 //! the scene composer and the four stili.
 
 pub mod caelum;
+pub mod figurae;
 pub mod littera;
 pub mod margo;
 pub mod mons;

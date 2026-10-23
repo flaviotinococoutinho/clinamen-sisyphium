@@ -1,22 +1,30 @@
 //! The scene composer: one frame from the world, the host, the regimen and the visible lines, in
 //! the order of `docs/04-arquitetura.md` §5, and the four stili (REQ-L5-03, REQ-L5-09, REQ-H-04).
 
-use crate::arbitrium::{annales, line_limit, revealed};
+use crate::arbitrium::{
+    DAEMON, DIOGENES, HERACLITUS, annales, asleep, contemplating, line_limit, revealed,
+};
 use crate::concentus::{Concentus, concentus};
 use crate::corpus::{
     Figura, Postura, boulder_texture, draw_boulder, draw_figure, gait_phase, postura,
 };
 use crate::hospes::{
-    CAELUM, Cellae, Facultates, HEXAGRAMMA, Indicia, MARGO, PUNCTA, RUINAE, Regimen, Stilus, Tabula,
+    CAELUM, Cellae, Facultates, HEXAGRAMMA, IMPOSSIBILIA, Indicia, MARGO, PERSONAE, PUNCTA, RUINAE,
+    Regimen, Stilus, Tabula,
 };
 use crate::mundus::Mundus;
-use crate::signum::caelum::{constellation, graph, hexagram, moon, sky_region};
+use crate::natura::mix;
+use crate::sensus::{liminal, rare};
+use crate::signum::caelum::{constellation, graph, hexagram, moon, ray, sky_region};
+use crate::signum::figurae::{enso, henon_point, quadrant_center, seam, staircase};
 use crate::signum::littera::{ORDO, cell_glyph, text};
 use crate::signum::margo::draw_frame;
 use crate::signum::mons::{draw_ruins, draw_slope};
 use crate::signum::pixel::{VOID, label_of, lum_of, pixel, stratum_of};
 use crate::signum::raster::{Modo, Pictor, bayer};
 use crate::spatium::{Compositio, PHI_INV2, Rect, compositio, isqrt, part};
+use crate::transumptio::trap;
+use crate::verbum::Modus;
 
 /// FNV-1a over 64 bits: the hash of a frame for the golden tests.
 #[must_use]
@@ -383,15 +391,14 @@ fn aphorism_anchor(
     None
 }
 
-/// The posture of the figure from the state (REQ-L3-02): contemplative during a persona
-/// (`eventus` 13..=15 with `ramus` 0 and `gradus` < 240) or in Quies, asleep for 64 ticks after
-/// the recognition (`eventus` 12), facing the observer when `leaving`.
+/// The posture follows the shared contemplation and sleep laws (REQ-L3-02, REQ-L4-06).
 fn figure_posture(mundus: &Mundus, leaving: bool) -> Postura {
-    let memoria = mundus.memoria;
-    let persona =
-        matches!(memoria.eventus(), 13..=15) && memoria.ramus() == 0 && memoria.gradus() < 240;
-    let asleep = memoria.eventus() == 12 && memoria.gradus() < 64;
-    postura(mundus.verbum, persona, asleep, leaving)
+    postura(
+        mundus.verbum,
+        contemplating(mundus.verbum, mundus.memoria),
+        asleep(mundus.memoria),
+        leaving,
+    )
 }
 
 /// The figure, its shadow and the boulder on the slope (REQ-L3-01..05).
@@ -414,7 +421,11 @@ fn compose_actors(
     pictor.line(
         foot.0,
         foot.1,
-        foot.0.wrapping_sub(shade),
+        if liminal(indicia.automatism, indicia.returned_ms) {
+            foot.0.wrapping_add(shade)
+        } else {
+            foot.0.wrapping_sub(shade)
+        },
         foot.1,
         2,
         CLASSIS_ACTORUM,
@@ -429,7 +440,22 @@ fn compose_actors(
         phase,
         linea: chord.linea,
     };
-    draw_figure(pictor, &figura, 15, CLASSIS_ACTORUM);
+    let head = draw_figure(pictor, &figura, 15, CLASSIS_ACTORUM);
+    if rare(
+        indicia.epoch_ms,
+        mundus.memoria.clausurae(),
+        mundus.memoria.eventus(),
+    ) {
+        ray(
+            pictor,
+            henon_point(
+                indicia.epoch_ms.div_euclid(4000),
+                sky_region(comp, pictor.width(), verbum.onus()),
+            ),
+            (head.0.wrapping_add(i32::from(head.2) / 2), head.1),
+            15,
+        );
+    }
     let reach = i32::from(comp.figure_h)
         .wrapping_shr(1)
         .wrapping_add(i32::from(comp.boulder_d).wrapping_shr(1));
@@ -448,7 +474,139 @@ fn compose_actors(
         boulder_texture(verbum),
         [12, 4, 15],
         CLASSIS_ACTORUM,
+        0b11u8.rotate_left(u32::from(verbum.ascensus() & 7)),
+        contemplating(verbum, mundus.memoria).then_some((
+            verbum,
+            16u8.wrapping_add((mundus.memoria.gradus() & 15) as u8),
+        )),
     );
+    if matches!(verbum.modus(), Modus::AmorFati) {
+        seam(
+            pictor,
+            center,
+            i32::from(comp.boulder_d) / 2,
+            mix(verbum.bits() >> 48),
+            scale,
+            15,
+        );
+    }
+}
+
+/// The three visiting figures and their attributes (REQ-L4-09; `docs/05-estetica.md` §6).
+/// Layer visibility does not alter the principal figure's contemplation.
+fn compose_personae(
+    pictor: &mut Pictor,
+    comp: &Compositio,
+    chord: &Concentus,
+    indicia: &Indicia,
+    regimen: &Regimen,
+    mundus: &Mundus,
+) {
+    if !regimen.has(PERSONAE) || comp.figure_h == 0 {
+        return;
+    }
+    let (ascent, posture, lum) = match mundus.memoria.eventus() {
+        DIOGENES => (
+            mundus.verbum.ascensus().saturating_add(40),
+            Postura::Erecta,
+            13,
+        ),
+        HERACLITUS => (
+            mundus.verbum.ascensus().saturating_sub(48),
+            Postura::Contemplans,
+            11,
+        ),
+        DAEMON => (255, Postura::Erecta, 4),
+        _ => return,
+    };
+    let phase = gait_phase(indicia.epoch_ms, chord.cadentia);
+    let figure = Figura {
+        foot: slope_point(comp, ascent),
+        h: comp.figure_h,
+        s: comp.s,
+        postura: posture,
+        phase,
+        linea: chord.linea,
+    };
+    let (hx, hy, side) = draw_figure(pictor, &figure, lum, CLASSIS_ACTORUM);
+    let s = i32::from(comp.s);
+    match mundus.memoria.eventus() {
+        DIOGENES => pictor.disc(
+            hx.saturating_add(i32::from(side))
+                .saturating_add(s.saturating_mul(2)),
+            hy.saturating_add(i32::from(side).saturating_mul(2)),
+            s,
+            15,
+            CLASSIS_ACTORUM,
+            false,
+        ),
+        HERACLITUS => {
+            let foot = comp.slope.0;
+            let height = i32::from(comp.figure_h) / 2;
+            let shift = if phase & 1 == 1 { s } else { 0 };
+            for row in 0..=height {
+                let center = foot.x.saturating_add(
+                    shift
+                        .saturating_mul(height.saturating_sub(row))
+                        .checked_div(height)
+                        .unwrap_or(0),
+                );
+                let y = foot.y.saturating_sub(height).saturating_add(row);
+                pictor.line(
+                    center.saturating_sub(row / 2),
+                    y,
+                    center.saturating_add(row / 2),
+                    y,
+                    14,
+                    CLASSIS_ACTORUM,
+                    1,
+                    Modo::Super,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The predicted quadrant's open circle and the closed impossible stair
+/// (REQ-L7-02, REQ-L2-10); prophecy stays absent during Somnium.
+fn compose_signs(
+    pictor: &mut Pictor,
+    comp: &Compositio,
+    chord: &Concentus,
+    regimen: &Regimen,
+    mundus: &Mundus,
+) {
+    let word = mundus.verbum;
+    if !matches!(word.modus(), Modus::Somnium) {
+        if let Some(q) = trap(mundus.memoria.oraculum(), mundus.memoria.quadrans()) {
+            enso(
+                pictor,
+                quadrant_center(pictor.width(), pictor.height(), q),
+                i32::from(comp.figure_h),
+                u16::from(mundus.memoria.quadrans()).wrapping_mul(16_384),
+                chord.linea.saturating_mul(comp.s.min(255) as u8),
+                comp.s,
+                14,
+            );
+        }
+    }
+    if regimen.has(IMPOSSIBILIA)
+        && ((word.conatus() > 200 && word.onus() > 200) || matches!(word.modus(), Modus::Somnium))
+    {
+        let k = i32::from(comp.s).saturating_mul(2);
+        let summit = comp.slope.1;
+        staircase(
+            pictor,
+            (
+                summit.x.saturating_sub(k.saturating_mul(10)),
+                summit.y.saturating_sub(k.saturating_mul(6)),
+            ),
+            6,
+            k,
+            11,
+        );
+    }
 }
 
 /// The chronicle lines on the plinth and, after the recognition, the word in hexadecimal when
@@ -543,6 +701,8 @@ fn compose(
         );
     }
     compose_actors(&mut pictor, &comp, chord, indicia, mundus);
+    compose_personae(&mut pictor, &comp, chord, indicia, regimen, mundus);
+    compose_signs(&mut pictor, &comp, chord, regimen, mundus);
     compose_aphorism(
         &mut Pictor::ground(tab, chord.curvatura, comp.scene_h, 15),
         &comp,
@@ -873,12 +1033,12 @@ pub fn render_cellae(
 /// Golden hashes of the six scenarios (REQ-L5-09), recorded after visual inspection.
 #[cfg(test)]
 const GOLDEN: [(&str, u64); 6] = [
-    ("vigilia", 0x5A6A_21F0_DB26_18D1),
-    ("acedia", 0xF476_2F2C_93C8_105B),
-    ("somnium", 0xAC2D_7475_7129_BCA8),
+    ("vigilia", 0x8EC0_38AE_D244_9A31),
+    ("acedia", 0x154B_9635_BD31_5C9B),
+    ("somnium", 0x5DC1_0301_F5AA_2C3A),
     ("quies", 0xD668_7590_F327_FB9F),
     ("littera", 0x32C8_0A84_CCF4_85E3),
-    ("somnium-1920x1080", 0xB1AC_03C5_B13F_6E38),
+    ("somnium-1920x1080", 0x0F0C_675B_2272_1E21),
 ];
 
 #[cfg(test)]
@@ -889,6 +1049,275 @@ mod tests {
     use crate::signum::pixel::{lum_of, stratum_of};
     use crate::verbum::Modus;
     use std::vec::Vec;
+
+    /// An isolated actor pass exposes its tones without sky, ground or text overdraw.
+    fn actor_surface(world: &Mundus, indicia: &Indicia, width: u16, height: u16) -> Vec<u8> {
+        let comp = compositio(width, height, 6);
+        let chord = concentus(world, &Facultates::default(), indicia, &Regimen::default());
+        let mut pixels = std::vec![VOID; usize::from(width) * usize::from(height)];
+        compose_actors(
+            &mut Pictor::flat(&mut Tabula::new(width, height, &mut pixels).unwrap()),
+            &comp,
+            &chord,
+            indicia,
+            world,
+        );
+        pixels
+    }
+
+    /// The oracle changes only its predicted quadrant, and never draws the ensō in Somnium.
+    #[test]
+    fn enso_in_predicted_quadrant() {
+        let comp = compositio(320, 180, 6);
+        let regimen = Regimen {
+            layers: 0,
+            ..Regimen::default()
+        };
+        for modus in [Modus::Vigilia, Modus::Somnium] {
+            for q in 0..4u8 {
+                let mut world = Mundus::genesis(1);
+                world.verbum = world.verbum.with_modus(modus);
+                world.memoria = world
+                    .memoria
+                    .with_quadrans(0)
+                    .with_oraculum(3u32 << (2 * q));
+                let chord = concentus(
+                    &world,
+                    &Facultates::default(),
+                    &Indicia::default(),
+                    &regimen,
+                );
+                let mut pixels = [VOID; 320 * 180];
+                compose_signs(
+                    &mut Pictor::flat(&mut Tabula::new(320, 180, &mut pixels).unwrap()),
+                    &comp,
+                    &chord,
+                    &regimen,
+                    &world,
+                );
+                let mut drawn = 0;
+                for (i, &p) in pixels.iter().enumerate() {
+                    if p != VOID {
+                        drawn += 1;
+                        assert_eq!(((i % 320 >= 160) as u8) | (((i / 320 >= 90) as u8) << 1), q);
+                    }
+                }
+                assert_eq!(drawn > 0, modus != Modus::Somnium);
+                world.memoria = world.memoria.with_oraculum(0x5555_5555);
+                pixels.fill(VOID);
+                compose_signs(
+                    &mut Pictor::flat(&mut Tabula::new(320, 180, &mut pixels).unwrap()),
+                    &comp,
+                    &chord,
+                    &regimen,
+                    &world,
+                );
+                assert!(pixels.iter().all(|&p| p == VOID));
+            }
+        }
+    }
+
+    /// The shadow changes sides only during the liminal interval (REQ-L6-02).
+    #[test]
+    fn liminal_shadow_flips() {
+        let world = Mundus::genesis(1);
+        let comp = compositio(320, 180, 6);
+        let foot = slope_point(&comp, world.verbum.ascensus());
+        for (automatism, returned_ms, right) in
+            [(255, 0, true), (0, u32::MAX, false), (255, 3000, false)]
+        {
+            let pixels = actor_surface(
+                &world,
+                &Indicia {
+                    automatism,
+                    returned_ms,
+                    ..Indicia::default()
+                },
+                320,
+                180,
+            );
+            let mut count = 0;
+            for (i, &p) in pixels.iter().enumerate() {
+                if lum_of(p) == 2 {
+                    count += 1;
+                    assert_eq!(i % 320 > foot.0 as usize, right);
+                }
+            }
+            assert!(count > 0);
+        }
+    }
+
+    /// A rare window contributes the prescribed sky-to-head ray (REQ-L6-03).
+    #[test]
+    fn rare_ray_drawn() {
+        let world = Mundus::genesis(1);
+        let c = world.memoria.clausurae();
+        let e = world.memoria.eventus();
+        let window = (0..100_000i64)
+            .find(|&w| rare(w * 4000, c, e) && !rare((w + 1) * 4000, c, e))
+            .unwrap();
+        let on = actor_surface(
+            &world,
+            &Indicia {
+                epoch_ms: window * 4000,
+                ..Indicia::default()
+            },
+            320,
+            180,
+        );
+        let off = actor_surface(
+            &world,
+            &Indicia {
+                epoch_ms: (window + 1) * 4000,
+                ..Indicia::default()
+            },
+            320,
+            180,
+        );
+        let comp = compositio(320, 180, 6);
+        let sky = sky_region(&comp, 320, world.verbum.onus());
+        let source = henon_point(window, sky);
+        let at = source.1 as usize * 320 + source.0 as usize;
+        assert_eq!(lum_of(on[at]), 15);
+        assert_ne!(lum_of(off[at]), 15);
+        assert!(
+            on.iter()
+                .zip(&off)
+                .any(|(&a, &b)| lum_of(a) == 15 && lum_of(b) != 15)
+        );
+    }
+
+    /// Collects tones strictly inside the boulder, excluding its one-pixel rim.
+    fn boulder_interior(world: &Mundus, width: u16, height: u16) -> std::collections::BTreeSet<u8> {
+        let comp = compositio(width, height, 6);
+        let foot = slope_point(&comp, world.verbum.ascensus());
+        let ahead = along_slope(
+            &comp,
+            foot,
+            i32::from(comp.figure_h) / 2 + i32::from(comp.boulder_d) / 2,
+        );
+        let radius = i32::from(comp.boulder_d) / 2;
+        let center = (ahead.0, ahead.1 - radius);
+        let pixels = actor_surface(world, &Indicia::default(), width, height);
+        let mut tones = std::collections::BTreeSet::new();
+        for y in center.1 - radius + 2..center.1 + radius - 1 {
+            for x in center.0 - radius + 2..center.0 + radius - 1 {
+                if (x - center.0) * (x - center.0) + (y - center.1) * (y - center.1)
+                    <= (radius - 2) * (radius - 2)
+                {
+                    tones.insert(lum_of(pixels[y as usize * usize::from(width) + x as usize]));
+                }
+            }
+        }
+        tones
+    }
+
+    /// A seam of tone fifteen crosses the interior only in affirmation.
+    #[test]
+    fn kintsugi_seam_in_amor_fati() {
+        let mut world = Mundus::genesis(1);
+        assert!(!boulder_interior(&world, 320, 180).contains(&15));
+        world.verbum = world.verbum.with_modus(Modus::AmorFati);
+        assert!(boulder_interior(&world, 320, 180).contains(&15));
+    }
+
+    /// At large scale contemplation exposes all four micro tones; ordinary seed rows remain dim.
+    #[test]
+    fn abyme_in_contemplation() {
+        let mut world = Mundus::genesis(1);
+        world.verbum = world.verbum.with_ascensus(128);
+        let normal = boulder_interior(&world, 1920, 1080);
+        assert!(normal.is_subset(&[12, 4, 7, 5].into_iter().collect()));
+        assert!(normal.contains(&7) || normal.contains(&5), "{normal:?}");
+        world.verbum = world.verbum.with_modus(Modus::Quies);
+        assert_eq!(
+            boulder_interior(&world, 1920, 1080),
+            [15, 12, 6, 4].into_iter().collect()
+        );
+    }
+
+    /// Secondary figures and their attributes belong to PERSONAE; primary contemplation does not.
+    #[test]
+    fn personae_drawn() {
+        let comp = compositio(640, 360, 6);
+        for (event, tone, attribute) in [
+            (DIOGENES, 13, Some(15)),
+            (HERACLITUS, 11, Some(14)),
+            (DAEMON, 4, None),
+        ] {
+            let mut world = Mundus::genesis(1);
+            world.verbum = world.verbum.with_ascensus(128);
+            world.memoria = world.memoria.with_eventus(event).with_gradus(10);
+            let chord = concentus(
+                &world,
+                &Facultates::default(),
+                &Indicia::default(),
+                &Regimen::default(),
+            );
+            for enabled in [false, true] {
+                let regimen = Regimen {
+                    layers: if enabled { PERSONAE } else { 0 },
+                    ..Regimen::default()
+                };
+                let mut pixels = std::vec![VOID;640*360];
+                compose_personae(
+                    &mut Pictor::flat(&mut Tabula::new(640, 360, &mut pixels).unwrap()),
+                    &comp,
+                    &chord,
+                    &Indicia::default(),
+                    &regimen,
+                    &world,
+                );
+                assert_eq!(pixels.iter().any(|&p| lum_of(p) == tone), enabled);
+                if let Some(tone) = attribute {
+                    assert_eq!(pixels.iter().any(|&p| lum_of(p) == tone), enabled);
+                }
+                assert_eq!(figure_posture(&world, false), Postura::Contemplans);
+                if !enabled {
+                    assert!(pixels.iter().all(|&p| p == VOID));
+                }
+            }
+        }
+    }
+
+    /// The impossible stair needs its layer and either both burdens above 200 or Somnium.
+    #[test]
+    fn impossibilia_scene_gate() {
+        let comp = compositio(320, 180, 6);
+        for (conatus, onus, modus, enabled, present) in [
+            (200, 201, Modus::Vigilia, true, false),
+            (201, 200, Modus::Vigilia, true, false),
+            (201, 201, Modus::Vigilia, true, true),
+            (201, 201, Modus::Vigilia, false, false),
+            (32, 32, Modus::Somnium, true, true),
+        ] {
+            let mut world = Mundus::genesis(1);
+            world.verbum = world
+                .verbum
+                .with_conatus(conatus)
+                .with_onus(onus)
+                .with_modus(modus);
+            let regimen = Regimen {
+                layers: if enabled { IMPOSSIBILIA } else { 0 },
+                ..Regimen::default()
+            };
+            let chord = concentus(
+                &world,
+                &Facultates::default(),
+                &Indicia::default(),
+                &regimen,
+            );
+            let mut pixels = [VOID; 320 * 180];
+            compose_signs(
+                &mut Pictor::flat(&mut Tabula::new(320, 180, &mut pixels).unwrap()),
+                &comp,
+                &chord,
+                &regimen,
+                &world,
+            );
+            assert_eq!(pixels.iter().any(|&p| p != VOID), present);
+        }
+    }
 
     /// The actual rendering surface governs the register even when the caller declares
     /// different cell capabilities; other channels retain the same inputs (REQ-L5-11).
@@ -1168,9 +1597,9 @@ mod tests {
                 let (x, y) = match (eventus, kappa) {
                     (_, -64) => (99, 4),
                     (1, 0) => (first.0 + 2, 30),
-                    (1, _) => (98, 24),
+                    (1, _) => (99, 24),
                     (_, 0) => (first.0 + 2, 4),
-                    _ => (98, 30),
+                    _ => (99, 30),
                 };
                 painter.fill(
                     x - 1,
@@ -1447,7 +1876,7 @@ mod tests {
             let expected = match w {
                 272 => (33, 91),
                 320 => (90, 44),
-                _ => (147, 187),
+                _ => (147, 185),
             };
             assert_eq!(anchor, Some(expected), "{w}x{h}");
         }
@@ -1576,7 +2005,7 @@ mod tests {
     }
 
     /// The posture comes from the state alone: contemplative during a persona (`eventus`
-    /// 13..=15, `ramus` 0, `gradus` < 240) and in Quies, asleep for 64 ticks after the
+    /// 13..=15, regardless of branch or age) and in Quies, asleep for 64 ticks after the
     /// recognition, facing the observer when leaving, upright otherwise; no regimen enters
     /// (REQ-L3-02).
     #[test]
@@ -1601,11 +2030,11 @@ mod tests {
             }
             assert_eq!(
                 figure_posture(&with(eventus, 0, 240), false),
-                Postura::Erecta
+                Postura::Contemplans
             );
             assert_eq!(
                 figure_posture(&with(eventus, 1, 10), false),
-                Postura::Erecta
+                Postura::Contemplans
             );
         }
         assert_eq!(figure_posture(&with(12, 0, 63), false), Postura::Dormiens);
@@ -2166,6 +2595,76 @@ mod tests {
         }
     }
 
+    /// Writes the new signs and actors as public render samples for visual inspection.
+    #[test]
+    #[ignore = "writes files; run on request"]
+    fn dump_figurae_ppm() {
+        use std::io::Write;
+        let dir = std::env::var("SISYPHIUM_DUMP").unwrap_or_else(|_| "/tmp".into());
+        for (name, event, modus, width, height) in [
+            ("diogenes", 13, Modus::Vigilia, 640, 360),
+            ("heraclitus", 14, Modus::Vigilia, 640, 360),
+            ("daemon", 15, Modus::Vigilia, 640, 360),
+            ("enso", 3, Modus::Vigilia, 640, 360),
+            ("kintsugi", 3, Modus::AmorFati, 640, 360),
+            ("impossibilia", 3, Modus::Somnium, 640, 360),
+            ("rare-ray", 3, Modus::Vigilia, 640, 360),
+            ("liminal", 3, Modus::Vigilia, 640, 360),
+            ("abyme", 3, Modus::Quies, 1920, 1080),
+        ] {
+            let mut world = Mundus::genesis(7);
+            world.verbum = world.verbum.with_ascensus(128).with_modus(modus);
+            world.memoria = world
+                .memoria
+                .with_eventus(event)
+                .with_ramus(1)
+                .with_gradus(400);
+            if name == "enso" {
+                world.memoria = world.memoria.with_oraculum(7).with_quadrans(0);
+            }
+            if name == "impossibilia" {
+                world.verbum = world.verbum.with_curvatura(-48);
+            }
+            let mut indicia = Indicia {
+                epoch_ms: NOON,
+                ..Indicia::default()
+            };
+            if name == "rare-ray" {
+                indicia.epoch_ms = (0..100_000i64)
+                    .find(|&w| rare(w * 4000, world.memoria.clausurae(), event))
+                    .unwrap()
+                    * 4000;
+            }
+            if name == "liminal" {
+                indicia.automatism = 255;
+                indicia.returned_ms = 0;
+            }
+            let f = Facultates {
+                width,
+                height,
+                ..Facultates::default()
+            };
+            let r = Regimen::default();
+            let mut pixels = std::vec![VOID;usize::from(width)*usize::from(height)];
+            world.render(
+                &f,
+                &indicia,
+                &r,
+                &mut Tabula::new(width, height, &mut pixels).unwrap(),
+            );
+            let palette = crate::concentus::palette(&concentus(&world, &f, &indicia, &r));
+            let mut out = std::format!("P6\n{width} {height}\n255\n").into_bytes();
+            for &pixel in &pixels {
+                out.extend_from_slice(&palette[usize::from(lum_of(pixel))]);
+            }
+            std::fs::File::create(std::format!("{dir}/{name}.ppm"))
+                .unwrap()
+                .write_all(&out)
+                .unwrap();
+            std::println!("{name}: {:#018x}", fnv1a(&pixels));
+        }
+    }
+
     /// Writes the six golden scenarios as PPM files, each at its own dimensions, for inspection
     /// when requested.
     #[test]
@@ -2217,6 +2716,8 @@ mod tests {
                 (3, 32, 0, true),
                 (3, 32, -64, true),
                 (3, 32, 64, true),
+                (1, 32, 64, false),
+                (3, 32, 64, false),
                 (5, 32, 64, false),
                 (0, 32, 64, false),
                 (2, 32, 64, true),

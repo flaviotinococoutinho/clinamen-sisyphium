@@ -4,7 +4,7 @@
 
 use crate::hospes::Tabula;
 use crate::signum::pixel::{lum_of, pixel, stratum_of};
-use crate::spatium::{WARP_R2_MAX, dominates, isqrt, warp_block, warp_factor, warp_scale};
+use crate::spatium::{WARP_R2_MAX, dominates, isqrt, warp_factor, warp_scale};
 
 /// The 4×4 ordered-dither matrix, four bits per threshold, index `((y & 3) << 2) | (x & 3)`
 /// (Bayer, 1973; REQ-L5-03).
@@ -75,8 +75,9 @@ const fn contracted_reach(extent: i64, floor: i64) -> i64 {
 /// a displacement d ≥ 0 projects to at least round(d·f/65 536), and the bound on each side is
 /// [`contracted_reach`] of E, the frame's extent from the center on that side (W − 1 − cx to
 /// the right, cx to the left; likewise in height). Expansion: the factor is at least 1, so a
-/// projected point is never closer to the center than its logical point, and its block reaches
-/// at most 7 pixels right and down (side ≤ 8); only [−7, W − 1] × [−7, H − 1] reaches the frame.
+/// projected point is never closer to the center than its logical point. The adjacent endpoint
+/// can cross the frame only from the preceding logical coordinate; a seven-pixel
+/// margin is conservative for the neighbour coverage (REQ-L2-06).
 const fn fines(width: u16, height: u16, cx: i64, cy: i64, kappa: i8) -> [i64; 4] {
     let (right, bottom) = (
         (width as i64).wrapping_sub(1),
@@ -160,18 +161,15 @@ impl<'t, 'p> Pictor<'t, 'p> {
         (from.max(left), to.min(right))
     }
 
-    /// Projects a logical coordinate through the curvature (REQ-L2-06): the squared radius
-    /// normalized to the half of the larger dimension, r2 = (dx² + dy²)·65 536/half² in Q16.16
-    /// (saturating), gives the factor of [`warp_factor`], which scales the displacement in pixels
-    /// with full precision ([`warp_scale`]). Returns the projected point and the side of the
-    /// block that covers it ([`warp_block`]).
-    fn project(&self, x: i32, y: i32) -> (i64, i64, i64) {
+    /// Projects a logical coordinate using the full-frame radial law (REQ-L2-06).
+    /// Widened coordinates also represent the neighbours of either i32 endpoint.
+    fn project(&self, x: i64, y: i64) -> (i64, i64) {
         if self.kappa == 0 {
-            return (i64::from(x), i64::from(y), 1);
+            return (x, y);
         }
         let (cx, cy) = (i64::from(self.cx), i64::from(self.cy));
-        let dx = i64::from(x).wrapping_sub(cx);
-        let dy = i64::from(y).wrapping_sub(cy);
+        let dx = x.saturating_sub(cx);
+        let dy = y.saturating_sub(cy);
         let half = i64::from(self.half);
         let r2 = dx
             .saturating_mul(dx)
@@ -181,19 +179,30 @@ impl<'t, 'p> Pictor<'t, 'p> {
             .unwrap_or(WARP_R2_MAX);
         let factor = warp_factor(r2, self.kappa);
         (
-            cx.wrapping_add(warp_scale(dx, factor)),
-            cy.wrapping_add(warp_scale(dy, factor)),
-            warp_block(r2, self.kappa),
+            cx.saturating_add(warp_scale(dx, factor)),
+            cy.saturating_add(warp_scale(dy, factor)),
         )
+    }
+
+    /// The uncut rectangular footprint of one logical pixel (REQ-L2-06). Expansion reaches
+    /// the next projected column and row independently, with a minimum extent of one pixel.
+    fn coverage(&self, x: i32, y: i32) -> [i64; 4] {
+        let (x, y) = (i64::from(x), i64::from(y));
+        let (px, py) = self.project(x, y);
+        let (mut right, mut bottom) = (px.saturating_add(1), py.saturating_add(1));
+        if self.kappa > 0 {
+            right = right.max(self.project(x.saturating_add(1), y).0);
+            bottom = bottom.max(self.project(x, y.saturating_add(1)).1);
+        }
+        [px, py, right, bottom]
     }
 
     /// Conservative projected bounds `[left, top, right, bottom]` with exclusive ends for a
     /// logical rectangle, including each block written by `plot` (REQ-L2-06, REQ-L5-06).
     /// In the operational curvature range ±64, expansion reaches its extrema at corners;
     /// contraction may also reach an extremum at an edge point nearest either central axis.
-    /// These nine samples reuse the point and coverage of `plot`. The greatest sampled block
-    /// is added to both upper bounds separately: a step in block size can otherwise put an
-    /// edge pixel beyond the sample with the greatest coordinate. Empty rectangles have no bounds.
+    /// These nine samples reuse the independent column and row ends of `plot`, including the
+    /// neighbour beyond the final logical pixel. Empty rectangles have no bounds.
     pub(crate) fn projected_bounds(&self, x: i32, y: i32, w: i32, h: i32) -> Option<[i64; 4]> {
         if w <= 0 || h <= 0 {
             return None;
@@ -203,21 +212,16 @@ impl<'t, 'p> Pictor<'t, 'p> {
         let columns = [x, self.cx.clamp(x, right), right];
         let rows = [y, self.cy.clamp(y, bottom), bottom];
         let mut bounds = [i64::MAX, i64::MAX, i64::MIN, i64::MIN];
-        let mut coverage = 1;
         for column in columns {
             for row in rows {
-                let (px, py, side) = self.project(column, row);
+                let [px, py, qx, qy] = self.coverage(column, row);
                 let [left, top, right, bottom] = &mut bounds;
                 *left = (*left).min(px);
                 *top = (*top).min(py);
-                *right = (*right).max(px);
-                *bottom = (*bottom).max(py);
-                coverage = coverage.max(side);
+                *right = (*right).max(qx);
+                *bottom = (*bottom).max(qy);
             }
         }
-        let [_, _, right, bottom] = &mut bounds;
-        *right = (*right).saturating_add(coverage);
-        *bottom = (*bottom).saturating_add(coverage);
         Some(bounds)
     }
 
@@ -236,12 +240,9 @@ impl<'t, 'p> Pictor<'t, 'p> {
     /// Writes one logical pixel: the block of REQ-L2-06 whose top-left corner is the projected
     /// point (one pixel unless the curvature expands), clipped to the frame.
     pub fn plot(&mut self, x: i32, y: i32, lum: u8, stratum: u8, label: u8, modo: Modo) {
-        let (px, py, side) = self.project(x, y);
+        let [px, py, qx, qy] = self.coverage(x, y);
         let (w, h) = (i64::from(self.tab.width), i64::from(self.tab.height));
-        let (right, bottom) = (
-            px.saturating_add(side).min(w),
-            py.saturating_add(side).min(h).min(i64::from(self.finis_y)),
-        );
+        let (right, bottom) = (qx.min(w), qy.min(h).min(i64::from(self.finis_y)));
         for row in py.max(0)..bottom {
             for column in px.max(0)..right {
                 self.put(
@@ -317,6 +318,39 @@ impl<'t, 'p> Pictor<'t, 'p> {
         thick: u8,
         modo: Modo,
     ) {
+        self.stroke(x0, y0, x1, y1, lum, stratum, 3, thick, modo);
+    }
+
+    /// A one-pixel Bresenham edge carrying a flight label (REQ-L2-08, REQ-L2-10).
+    #[allow(clippy::too_many_arguments)]
+    pub fn edge(
+        &mut self,
+        x0: i32,
+        y0: i32,
+        x1: i32,
+        y1: i32,
+        lum: u8,
+        stratum: u8,
+        label: u8,
+        modo: Modo,
+    ) {
+        self.stroke(x0, y0, x1, y1, lum, stratum, label, 1, modo);
+    }
+
+    /// Bresenham's integer recurrence shared by labelled edges and thick lines (1965).
+    #[allow(clippy::too_many_arguments)]
+    fn stroke(
+        &mut self,
+        x0: i32,
+        y0: i32,
+        x1: i32,
+        y1: i32,
+        lum: u8,
+        stratum: u8,
+        label: u8,
+        thick: u8,
+        modo: Modo,
+    ) {
         let (mut x, mut y) = (self.clamp(x0), self.clamp(y0));
         let (x1, y1) = (self.clamp(x1), self.clamp(y1));
         let dx = x1.wrapping_sub(x).saturating_abs();
@@ -325,7 +359,7 @@ impl<'t, 'p> Pictor<'t, 'p> {
         let sy = if y < y1 { 1 } else { -1 };
         let mut err = dx.wrapping_add(dy);
         loop {
-            self.blot(x, y, lum, stratum, 3, thick, modo);
+            self.blot(x, y, lum, stratum, label, thick, modo);
             if x == x1 && y == y1 {
                 break;
             }
@@ -402,6 +436,43 @@ mod tests {
         clippy::naive_bytecount
     )]
     use super::*;
+    /// Neighbours of i32 endpoints are formed after widening; expansion dimensions differ.
+    #[test]
+    fn coverage_at_coordinate_extremes() {
+        let mut pixels = [VOID; 320 * 180];
+        let mut tab = Tabula::new(320, 180, &mut pixels).unwrap();
+        let painter = Pictor::new(&mut tab, 64);
+        for x in [i32::MIN, i32::MAX] {
+            let [px, py, right, bottom] = painter.coverage(x, 40);
+            assert_eq!(right, (px + 1).max(painter.project(i64::from(x) + 1, 40).0));
+            assert_eq!(bottom, (py + 1).max(painter.project(i64::from(x), 41).1));
+            assert_eq!(right - px, 2);
+        }
+        assert!((0..320).any(|x| {
+            let [px, py, right, bottom] = painter.coverage(x, 40);
+            right - px != bottom - py
+        }));
+    }
+
+    /// The least expansion retains a one-pixel stroke (REQ-L2-06).
+    #[test]
+    fn expansion_keeps_stroke_width() {
+        for (kappa, limit) in [(1, 1), (64, 3)] {
+            let mut pixels = [VOID; 320 * 180];
+            let mut tab = Tabula::new(320, 180, &mut pixels).unwrap();
+            Pictor::new(&mut tab, kappa).line(0, 40, 319, 40, 15, 0, 1, Modo::Super);
+            let mut reached = 0;
+            for x in 0..320 {
+                let count = (0..180)
+                    .filter(|&y| lum_of(pixels[y * 320 + x]) == 15)
+                    .count();
+                assert!(count <= limit, "kappa {kappa}, column {x}: {count}");
+                reached += usize::from(count > 0);
+            }
+            assert_eq!(reached, 320);
+        }
+    }
+
     /// Ground restrictions are applied after the full frame projection, including expanded
     /// blocks, without touching the caller's suffix (REQ-L2-06, REQ-H-02).
     #[test]
@@ -452,18 +523,15 @@ mod tests {
                             let mut contained = true;
                             for column in x..x + w {
                                 for row in y..y + h {
-                                    let (px, py, side) = painter.project(column, row);
+                                    let [px, py, qx, qy] = painter.coverage(column, row);
                                     assert!(
-                                        left <= px
-                                            && top <= py
-                                            && right >= px + side
-                                            && bottom >= py + side,
-                                        "{frame_w}x{frame_h}, curvature {kappa}, rectangle {x},{y},{w},{h}: ({column},{row}) projects to {px},{py},{side} outside {left},{top},{right},{bottom}"
+                                        left <= px && top <= py && right >= qx && bottom >= qy,
+                                        "{frame_w}x{frame_h}, curvature {kappa}, rectangle {x},{y},{w},{h}: ({column},{row}) projects to {px},{py},{qx},{qy} outside {left},{top},{right},{bottom}"
                                     );
                                     contained &= px >= 0
                                         && py >= 0
-                                        && px + side <= i64::from(frame_w)
-                                        && py + side <= i64::from(scene_h);
+                                        && qx <= i64::from(frame_w)
+                                        && qy <= i64::from(scene_h);
                                 }
                             }
                             assert_eq!(
@@ -507,12 +575,9 @@ mod tests {
                         painter.projected_bounds(x, y, rw, rh).unwrap();
                     for column in x..x + rw {
                         for row in y..y + rh {
-                            let (px, py, side) = painter.project(column, row);
+                            let [px, py, qx, qy] = painter.coverage(column, row);
                             assert!(
-                                left <= px
-                                    && top <= py
-                                    && right >= px + side
-                                    && bottom >= py + side,
+                                left <= px && top <= py && right >= qx && bottom >= qy,
                                 "{w}x{h}, curvature {kappa}, rectangle {x},{y},{rw},{rh}, pixel {column},{row}"
                             );
                         }
@@ -670,36 +735,47 @@ mod tests {
         }
     }
 
-    /// A filled square of side H/2 at the center stays a solid area under curvature: inside the
-    /// bounding box of the lit pixels at least 95 % are lit, at three resolutions and under
-    /// contraction and expansion (REQ-L2-06).
+    /// Density is measured inside the continuous radial image, excluding the exterior corners
+    /// of its enclosing rectangle. Ray intersection with the source square is independent of
+    /// the integer projection and coverage implementation (REQ-L2-06).
     #[test]
     fn curvature_density() {
         for (w, h) in [(320u16, 180u16), (640, 360), (1920, 1080)] {
             for kappa in [-64i8, -1, 1, 64] {
-                let (wu, hu) = (usize::from(w), usize::from(h));
-                let mut buf = std::vec![VOID; wu * hu];
+                let mut buf = std::vec![VOID; usize::from(w) * usize::from(h)];
                 let mut tab = Tabula::new(w, h, &mut buf).unwrap();
-                let mut pictor = Pictor::new(&mut tab, kappa);
                 let side = i32::from(h) / 2;
-                let (x0, y0) = (i32::from(w) / 2 - side / 2, i32::from(h) / 2 - side / 2);
-                pictor.fill(x0, y0, side, side, 15, 0, false);
-                let (mut left, mut right, mut top, mut bottom) = (wu, 0, hu, 0);
-                let mut lit = 0usize;
-                for (i, &p) in buf.iter().enumerate() {
-                    if lum_of(p) == 15 {
-                        let (x, y) = (i % wu, i / wu);
-                        left = left.min(x);
-                        right = right.max(x);
-                        top = top.min(y);
-                        bottom = bottom.max(y);
-                        lit += 1;
+                let (cx, cy) = (i32::from(w) / 2, i32::from(h) / 2);
+                let (x0, y0) = (cx - side / 2, cy - side / 2);
+                Pictor::new(&mut tab, kappa).fill(x0, y0, side, side, 15, 0, false);
+                let mut required = 0;
+                let mut covered = 0;
+                for y in 0..i32::from(h) {
+                    for x in 0..i32::from(w) {
+                        let dx = f64::from(x - cx) + 0.5;
+                        let dy = f64::from(y - cy) + 0.5;
+                        let tx = f64::from(if dx > 0.0 { x0 + side - cx } else { x0 - cx }) / dx;
+                        let ty = f64::from(if dy > 0.0 { y0 + side - cy } else { y0 - cy }) / dy;
+                        let t = tx.min(ty);
+                        let half = f64::from(w.max(h) / 2);
+                        let radius = (t * t * (dx * dx + dy * dy) / (half * half)).min(2.0);
+                        let factor = if kappa >= 0 {
+                            1.0 + f64::from(kappa) * radius / 128.0
+                        } else {
+                            1.0 / (1.0 - f64::from(kappa) * radius / 128.0)
+                        };
+                        if t * factor > 1.0 {
+                            required += 1;
+                            covered += usize::from(
+                                lum_of(buf[y as usize * usize::from(w) + x as usize]) == 15,
+                            );
+                        }
                     }
                 }
-                let area = (right - left + 1) * (bottom - top + 1);
+                assert!(required > 0);
                 assert!(
-                    lit * 100 >= area * 95,
-                    "{w}×{h} κ {kappa}: {lit} of {area} lit in the bounding box"
+                    covered * 100 >= required * 95,
+                    "{w}x{h}, kappa {kappa}: {covered}/{required}"
                 );
             }
         }
@@ -722,8 +798,8 @@ mod tests {
                 let mut touching = 0;
                 for y in -margin..hl + margin {
                     for x in -margin..wl + margin {
-                        let (px, py, side) = pictor.project(x as i32, y as i32);
-                        if px + side > 0 && px < wl && py + side > 0 && py < hl {
+                        let [px, py, qx, qy] = pictor.coverage(x as i32, y as i32);
+                        if qx > 0 && px < wl && qy > 0 && py < hl {
                             touching += 1;
                             assert!(
                                 (left..=right).contains(&x) && (top..=bottom).contains(&y),
