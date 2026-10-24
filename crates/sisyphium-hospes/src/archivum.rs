@@ -328,6 +328,7 @@ fn publish(
 }
 
 /// Requests Unix directory synchronization without claiming absolute power-loss durability (REQ-D-02).
+#[cfg_attr(not(unix), allow(clippy::unnecessary_wraps))] // The shared signature preserves Unix errors.
 fn sync_parent(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     if let Some(parent) = path.parent() {

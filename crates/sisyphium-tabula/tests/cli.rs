@@ -141,7 +141,7 @@ fn invalid_usage_has_no_output_or_state() {
     ] {
         let mut output = Vec::new();
         assert_eq!(run(&args(&values), &mut output).unwrap_err().exit_code(), 2);
-        assert!(output.is_empty());
+        assert_eq!(output, [] as [u8; 0]);
     }
 }
 #[test]
@@ -176,7 +176,7 @@ fn help_version_and_file_output_do_not_pollute_stdout() {
         options.push(dir.0.join("absent/state").into_os_string());
         let mut output = Vec::new();
         run(&options, &mut output).unwrap();
-        assert!(!output.is_empty());
+        assert_ne!(output, [] as [u8; 0]);
         assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 0);
     }
     let image = dir.0.join("explicit.ppm");
@@ -185,7 +185,7 @@ fn help_version_and_file_output_do_not_pollute_stdout() {
     options.extend([OsString::from("--output"), image.clone().into_os_string()]);
     let mut output = Vec::new();
     run(&options, &mut output).unwrap();
-    assert!(output.is_empty());
+    assert_eq!(output, [] as [u8; 0]);
     assert_eq!(&fs::read(&image).unwrap()[..8], b"\x89PNG\r\n\x1a\n");
     assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
 }
@@ -229,7 +229,7 @@ fn existing_state_and_seed_conflict_preserve_state() {
     options.extend([OsString::from("--state"), path.clone().into_os_string()]);
     let mut output = Vec::new();
     assert_eq!(run(&options, &mut output).unwrap_err().exit_code(), 1);
-    assert!(output.is_empty());
+    assert_eq!(output, [] as [u8; 0]);
     assert_eq!(fs::read(&path).unwrap(), initial);
 }
 
@@ -341,7 +341,7 @@ fn binary_broken_pipe_is_operational_and_preserves_state() {
     drop(child.stdout.take());
     let result = child.wait_with_output().unwrap();
     assert_eq!(result.status.code(), Some(1));
-    assert!(!result.stderr.is_empty());
+    assert_ne!(result.stderr, [] as [u8; 0]);
     assert_eq!(fs::read(&path).unwrap(), initial);
 }
 
@@ -559,7 +559,7 @@ fn measurement_arguments_are_isolated() {
     ] {
         let mut output = Vec::new();
         assert_eq!(run(&args(&values), &mut output).unwrap_err().exit_code(), 2);
-        assert!(output.is_empty());
+        assert_eq!(output, [] as [u8; 0]);
     }
     // Fail on the TSV header before any measurements: every supported selection parses.
     for style in [
