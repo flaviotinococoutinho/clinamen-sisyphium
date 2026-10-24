@@ -126,3 +126,26 @@ A instrumentação de contagem de buscas existe apenas nos testes. As falhas de 
 confirmação após `rename` usam verificações privadas, sem encerramento de processos externos.
 Os testes de `mtime` alteram apenas arquivos temporários próprios. Essas provas não simulam
 apagão físico e não estabelecem atomicidade ou durabilidade universal em sistemas de arquivos.
+
+## 9. Imagens estáticas de Tabula
+
+`cargo test -p sisyphium-tabula` verifica a paridade com `Mundus::advance`, `render` e
+`palette` públicos, com `max_hz=0` e escolha pelo `consilium`. A prova compara os 32 bytes
+finais e cada amostra RGB. Os testes cobrem falhas de escrita, broken pipe com código 1,
+origem operacional de `InvalidInput`, limites de dimensões com código 2, estado inválido,
+seed conflitante, symlinks, aliases de estado/lock, relógio futuro e preservação de `mtime`.
+A aceitação de nomes não UTF-8 depende do sistema de arquivos; a prova exige preservação dos
+bytes e da recusa nativa quando o sistema não os admite.
+
+```sh
+cargo build -p sisyphium-tabula
+python3 scripts/verify-images.py --binary target/debug/sisyphium-tabula
+```
+
+O verificador usa somente a biblioteca padrão de Python 3.9 ou posterior. `struct`,
+`binascii` e `zlib` validam a estrutura, os CRCs, o Adler-32, o terminador, o filtro 0,
+os índices e o RGB. O RGB decodificado DEVE coincidir com o PPM do mesmo cenário.
+A matriz contém 1×1, 320×180, 254×257 e 257×256; as duas últimas dimensões exercitam,
+respectivamente, 65 535 bytes filtrados exatos e a passagem para outro bloco stored.
+O cenário de energia zero verifica a saída estática de energia escassa. As provas não
+acionam os scripts de integração nem alteram wallpaper ou agendadores.
