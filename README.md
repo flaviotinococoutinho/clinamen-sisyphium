@@ -31,6 +31,7 @@ Executa formato, lints, testes, documentação e varredura de termos vetados, na
 
 | Documento | Conteúdo |
 | --- | --- |
+| [docs/canon/README.md](docs/canon/README.md) | Índice dos compromissos estáveis: identidade, núcleo e limites dos hospedeiros |
 | `docs/00-metacognicao.md` | Pré-planejamento: abstratos de valor, essencial e acidental, sinergia |
 | `docs/01-visao.md` | Harness irrefutável, intenção, metas, não-metas, antimetas, restrições, decisões |
 | `docs/02-ontologia.md` | Níveis ontológicos, teorias por nível e cultura, glossário de termos definidos |
