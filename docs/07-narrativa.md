@@ -45,8 +45,9 @@ lei do mundo que a figura sofre.
 - A última linha afirma a consequência maior como fato, sem advérbio.
 - Cada ramus de um clinamen conduz a uma civilização e época diferentes; os oito clinamina
   cobrem, ao todo, ao menos doze civilizações em quatro continentes. A travessia de culturas é
-  estrutural, não decorativa: a consequência chega a uma cidade real do passado, nomeada, e a
-  um ofício concreto.
+  estrutural, não decorativa: a consequência chega a um lugar histórico real, nomeado (cidade,
+  reino ou território), e a um ofício concreto. As cadeias de consequências são ficcionais;
+  os lugares e épocas de §4 situam a ficção, sem afirmar acontecimentos históricos.
 - Aforismos nos nós de ramificação: forma `□X → ◊Y` com X e Y substantivos de uma palavra;
   no máximo 16 glifos; um por nó.
 - Os dois corpora (inglês, português) são autorais e equivalentes em registro, não traduções
