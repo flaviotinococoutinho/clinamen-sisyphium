@@ -20,7 +20,9 @@ const fn component(text: &str) -> u32 {
     let bytes = text.as_bytes();
     let mut index = 0;
     let mut value = 0;
-    assert!(!bytes.is_empty());
+    // Keep the const assertion compatible with the minimum compiler's panic API.
+    let has_digits = !bytes.is_empty();
+    assert!(has_digits);
     while index < bytes.len() {
         assert!(bytes[index] >= b'0' && bytes[index] <= b'9');
         value = value * 10 + (bytes[index] - b'0') as u32;

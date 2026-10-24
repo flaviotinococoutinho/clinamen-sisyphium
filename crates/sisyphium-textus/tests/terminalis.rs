@@ -35,6 +35,17 @@ fn blocks_pair_rows() {
     );
 }
 
+/// Plain raster preserves both halves and low-contrast shapes without ANSI (REQ-H-02).
+#[test]
+fn plain_blocks_preserve_contrast() {
+    for (dark, light) in [(0_u8, 0xf0_u8), (0x20, 0x30)] {
+        let pixels = [dark, light, dark, light, dark, dark, light, light];
+        let output = format_blocks(&pixels, 4, 2, &[[0; 3]; 16], true).unwrap();
+        assert_eq!(output, " ▀▄█\n".as_bytes());
+        assert!(!output.contains(&0x1b));
+    }
+}
+
 /// Both input and worst-case output have independent finite limits (REQ-H-02).
 #[test]
 fn terminal_output_bound() {
