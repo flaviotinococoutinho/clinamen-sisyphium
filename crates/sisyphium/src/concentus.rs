@@ -32,7 +32,7 @@ pub struct Concentus {
     /// Tint strength 0..=64: each tone mixes `chroma`/256 of the tint target into its color, at most
     /// 64/256 (a quarter) with no serenity; serenity reduces it.
     pub chroma: u8,
-    /// Minimum tone difference between figure and ground, 8..=15; rises as energy falls.
+    /// Minimum tone difference between figure and ground, 8..=13; rises as energy falls.
     pub contrastus: u8,
     /// Line weight in units of the integer scale: 1 serene, 2 agitated.
     pub linea: u8,
@@ -83,14 +83,15 @@ pub fn concentus(
     };
     let tranquillitas = u16::from(v.tranquillitas());
     let chroma = (63u16.saturating_sub(tranquillitas).wrapping_mul(64) / 63) as u8;
+    // Bicolor erases tones 0 and 1: 13 = 15 - 2 is the greatest contrast that keeps ground.
     let contrastus = if v.modus() == Modus::Quies {
-        15
+        13
     } else {
         match indicia.energy {
             179..=255 => 8,
             77..=178 => 10,
             39..=76 => 12,
-            _ => 15,
+            _ => 13,
         }
     };
     let linea = if v.tranquillitas() < 32 { 2 } else { 1 };
@@ -324,7 +325,8 @@ mod tests {
         assert_eq!(rgb(1560.0 / 7.0, 0.7, 41.0 / 51.0), FRIGUS);
     }
 
-    /// Contrast rises as energy falls (REQ-L5-02; `05-estetica.md` §10).
+    /// Contrast rises as energy falls, keeping ground at least at the first tone Bicolor
+    /// preserves; Quies fixes the greatest such contrast (REQ-L5-11; `05-estetica.md` §10).
     #[test]
     fn contrast_by_energy() {
         let f = Facultates::default();
@@ -354,8 +356,24 @@ mod tests {
                 at(38),
                 at(0)
             ),
-            (8, 8, 10, 10, 12, 12, 15, 15)
+            (8, 8, 10, 10, 12, 12, 13, 13)
         );
+        for energy in 0..=255 {
+            assert!(15 - at(energy) >= 2, "ground remains visible in Bicolor");
+            if energy > 0 {
+                assert!(at(energy) <= at(energy - 1));
+            }
+            let quies = concentus(
+                &world(32, 24, Modus::Quies),
+                &f,
+                &Indicia {
+                    energy,
+                    ..Indicia::default()
+                },
+                &r,
+            );
+            assert_eq!(quies.contrastus, 13, "Quies at energy {energy}");
+        }
     }
 
     /// Thick lines under agitation, thin lines in serenity (REQ-L5-05).
@@ -512,7 +530,7 @@ mod tests {
                 &Regimen::default()
             )
             .contrastus,
-            15
+            13
         );
     }
 }
