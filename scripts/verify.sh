@@ -15,6 +15,6 @@ python_command=${SISYPHIUM_PYTHON:-python3}
 cargo build -p sisyphium-tabula
 "$python_command" scripts/verify-images.py --binary target/debug/sisyphium-tabula
 "$python_command" scripts/verify-ffi.py
-"$python_command" scripts/verify-hosts.py --platform current
 "$python_command" scripts/verify-textus.py
+"$python_command" scripts/verify-hosts.py --platform current
 printf 'verificatio: tudo limpo\n'

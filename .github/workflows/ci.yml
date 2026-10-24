@@ -70,10 +70,10 @@ jobs:
           python3 scripts/verify-images.py --binary target/debug/sisyphium-tabula
       - name: consumidores C nativos
         run: python3 scripts/verify-ffi.py
-      - name: adaptadores com comandos substitutos
-        run: python3 scripts/verify-hosts.py --platform current
       - name: terminal e encerramento nativos
         run: python3 scripts/verify-textus.py
+      - name: adaptadores com comandos substitutos
+        run: python3 scripts/verify-hosts.py --platform current
 
   minima:
     runs-on: ubuntu-latest
