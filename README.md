@@ -14,9 +14,21 @@ nos crates e no ABI: `sisyphium`.
 
 ## Estado
 
-Checkpoint presente: 3 (escolha, percepção e narração: `arbitrium` com corpus em duas línguas,
-`sensus`, `transumptio`, `consilium`; `mundus::step`, `advance` e `render`). Evidências de cada
-checkpoint estão no PR correspondente e na mensagem da tag `cp/N-assunto`.
+Checkpoint presente: 4 (hospedeiros nativos: `tabula` em PNG/PPM, `textus` em células e
+meio-blocos, `limen` em ABI C, adaptadores de desktop e custos medidos de `consilium`).
+O núcleo conserva as leis do mundo e o estado de 128 bits. Evidências de cada checkpoint
+estão no PR correspondente e na mensagem da tag `cp/N-assunto`.
+
+## Execução
+
+```sh
+cargo run --release -p sisyphium-tabula -- --output quadro.png --lingua pt
+cargo run --release -p sisyphium-textus -- --plain --frames 1 --lingua pt
+```
+
+A persistência é opcional por `--state`. Os adaptadores de desktop usam ações explícitas e
+selecionam `dry-run` por padrão; opções e agendas constam de [hosts/README.md](hosts/README.md).
+O header C está em [sisyphium.h](crates/sisyphium-limen/include/sisyphium.h).
 
 ## Verificação
 
@@ -24,8 +36,11 @@ checkpoint estão no PR correspondente e na mensagem da tag `cp/N-assunto`.
 scripts/verify.sh
 ```
 
-Executa formato, lints, testes, documentação e varredura de termos vetados, na ordem de
-`docs/08-verificacao.md` §3.
+Executa formato, lints, testes, documentação, vocabulário, modelo independente e provas
+nativas de imagens, ABI C, terminal e adaptadores, conforme `docs/08-verificacao.md` §3.
+A verificação exige Python 3.9 ou posterior e compilador C já configurado;
+`SISYPHIUM_PYTHON` seleciona um executável Python existente. A integração contínua cobre
+Linux, macOS, Windows e a versão mínima de Rust 1.85.
 
 ## Mapa dos documentos
 
