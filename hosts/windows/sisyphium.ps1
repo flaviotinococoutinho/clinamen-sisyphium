@@ -58,7 +58,7 @@ try {
         $xml = [xml](Get-Content -LiteralPath (Join-Path $PSScriptRoot 'sisyphium-task.xml.in') -Raw)
         $xml.Task.Triggers.TimeTrigger.StartBoundary = (Get-Date).AddSeconds($Interval).ToString('s')
         $xml.Task.Triggers.TimeTrigger.Repetition.Interval = "PT${Interval}S"
-        $xml.Task.Actions.Exec.Command = $command
+        $xml.Task.Actions.Exec.Command = $command.ToString()
         $xml.Task.Actions.Exec.Arguments = ($arguments | ForEach-Object { Quote-Argument $_ }) -join ' '
         $xml.Task.Principals.Principal.UserId = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
         Register-ScheduledTask -TaskName $taskName -TaskPath $taskPath -Xml $xml.OuterXml | Out-Null
