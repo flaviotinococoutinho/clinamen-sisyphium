@@ -64,12 +64,29 @@ fn finite_frames_and_pipe() -> io::Result<()> {
         3
     );
     assert!(!output.stdout.contains(&27));
-    let blocks = invoke(&["--cells", "false", "--cols", "9", "--rows", "3"])?;
+    let blocks = invoke(&[
+        "--cells",
+        "false",
+        "--cols",
+        "9",
+        "--rows",
+        "3",
+        "--seed",
+        "17",
+        "--epoch",
+        "1782054000000",
+        "--ticks",
+        "0",
+        "--frames",
+        "1",
+    ])?;
     assert!(blocks.status.success());
-    assert_eq!(
-        String::from_utf8(blocks.stdout).map_err(io::Error::other)?,
-        "▀".repeat(9) + "\n" + &"▀".repeat(9) + "\n" + &"▀".repeat(9) + "\n"
-    );
+    assert!(!blocks.stdout.contains(&27));
+    let text = String::from_utf8(blocks.stdout).map_err(io::Error::other)?;
+    assert_eq!(text.lines().count(), 3);
+    assert!(text.lines().all(|line| line.chars().count() == 9));
+    assert!(text.chars().all(|glyph| " ▀▄█\n".contains(glyph)));
+    assert!(text.chars().any(|glyph| glyph != '▀' && glyph != '\n'));
     Ok(())
 }
 
@@ -103,7 +120,7 @@ fn synthetic_epoch_and_usage() -> io::Result<()> {
     ] {
         let output = invoke(&args)?;
         assert_eq!(output.status.code(), Some(2), "{args:?}");
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.stdout, [] as [u8; 0]);
     }
     Ok(())
 }

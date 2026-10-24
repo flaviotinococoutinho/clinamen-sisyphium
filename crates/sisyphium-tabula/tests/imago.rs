@@ -11,7 +11,7 @@ fn ppm_maps_luminance_only() {
     assert_eq!(result, b"P6\n2 1\n255\n\x0b\x16\x21\x0b\x16\x21");
     let mut empty = Vec::new();
     assert!(write_image(Forma::Ppm, 2, 1, &[0x10], &palette, &mut empty).is_err());
-    assert!(empty.is_empty());
+    assert_eq!(empty, [] as [u8; 0]);
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn encoder_rejects_invalid_rasters_before_writing() {
                     .kind(),
                 std::io::ErrorKind::InvalidInput
             );
-            assert!(output.is_empty());
+            assert_eq!(output, [] as [u8; 0]);
         }
     }
 }
