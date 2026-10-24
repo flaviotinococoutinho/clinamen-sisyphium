@@ -104,3 +104,25 @@ convertidos em PNG e inspecionados antes de registrar hashes.
 
 Os hashes são constantes nos testes; uma mudança de forma intencional atualiza as constantes no
 mesmo commit que a causa.
+
+## 8. Leis compartilhadas dos hospedeiros
+
+`cargo test -p sisyphium-hospes` verifica os contratos comuns sem acesso à rede ou ao ambiente
+de apresentação. `cargo clippy -p sisyphium-hospes --all-targets -- -D warnings` mantém as
+restrições herdadas. O núcleo e a biblioteca comum preservam `unsafe_code = forbid`.
+
+| Lei | Prova |
+| --- | --- |
+| Tempo conservador, relógio futuro e extremos de `i64` | `elapsed_ticks_conservative`, `epoch_range_is_checked` |
+| Domínios de argumentos, UTF-8 numérico, caminhos nativos e origem de erro | `argument_domains`, `non_utf8_paths_are_not_numbers`, `host_flags_consumed_exactly_once` |
+| Busca somente em transições, orçamento na mesma faixa e seis predicados semânticos | `cache_transition_only`, `cached_transition_matches_core_search` |
+| Estado corrompido preservado, normalização hexadecimal e lock vazio | `state_transaction_preserves_previous` |
+| Fotografia ausente, escritores simultâneos e mudança isolada de `mtime` | `absent_snapshot_conflicts_with_creation`, `simultaneous_writers_publish_only_one_snapshot`, `unchanged_state_preserves_time_and_mtime_change_conflicts` |
+| Symlinks de estado e lock recusados sem remoção | `symlink_state_is_rejected`, `dangling_symlinks_and_foreign_locks_survive` |
+| Falha anterior à substituição preserva estado e fotografia | `pre_rename_failure_preserves_snapshot`, `atomic_failure_keeps_committed_state` |
+| Falha posterior à substituição informa publicação e recusa repetição | `post_rename_failure_does_not_roll_back` |
+
+A instrumentação de contagem de buscas existe apenas nos testes. As falhas de escrita e de
+confirmação após `rename` usam verificações privadas, sem encerramento de processos externos.
+Os testes de `mtime` alteram apenas arquivos temporários próprios. Essas provas não simulam
+apagão físico e não estabelecem atomicidade ou durabilidade universal em sistemas de arquivos.
