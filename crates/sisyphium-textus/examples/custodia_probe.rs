@@ -203,7 +203,7 @@ mod signa {
             let file = OpenOptions::new().read(true).write(true).open(name)?;
             // SAFETY: file owns a live console handle for the entire call and the u32
             // destination is valid writable storage. The API only reads existing mode bits.
-            if unsafe { GetConsoleMode(file.as_raw_handle(), &mut result[index]) } == 0 {
+            if unsafe { GetConsoleMode(file.as_raw_handle(), &raw mut result[index]) } == 0 {
                 return Err(io::Error::last_os_error());
             }
         }
