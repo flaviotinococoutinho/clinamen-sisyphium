@@ -7,9 +7,10 @@ clinamen-sisyphium/
   Cargo.toml                 workspace
   crates/
     sisyphium/               núcleo: no_std, sem alloc, sem dependências, sem unsafe, sem ponto flutuante
-    sisyphium-tabula/      hospedeiro: linha de comando; escreve PPM e PNG (codificador próprio)
-    sisyphium-textus/      hospedeiro: terminal; Littera nativo; raster por meio-bloco
-    sisyphium-limen/       hospedeiro: ABI C (staticlib, cdylib); exportação wasm
+    sisyphium-hospes/         biblioteca std: argumentos, tempo, seleção e persistência
+    sisyphium-tabula/         hospedeiro: linha de comando; escreve PPM e PNG (codificador próprio)
+    sisyphium-textus/         hospedeiro: terminal; Littera nativo; raster por meio-bloco
+    sisyphium-limen/          hospedeiro: ABI C (staticlib, cdylib); exportação wasm
   hosts/
     macos/                   script de papel de parede + launchd
     linux/                   script de papel de parede (feh ou swww) + systemd timer
@@ -69,7 +70,42 @@ Regra de dependência: `concentus` e `signum` não alteram estado; `arbitrium`, 
 ### 3.3 Persistência
 
 Texto de 32 dígitos hexadecimais: `Verbum` (16) seguido de `Memoria` (16), nibble mais
-significativo primeiro. Independente de endianness. Único dado gravado por qualquer hospedeiro.
+significativo primeiro, sem quebra de linha. Independente de endianness. Esse texto é o único
+conteúdo persistido do mundo. Imagens, agendas, locks vazios e temporários exclusivos são
+artefatos operacionais, sem histórico de interação ou relógio auxiliar (REQ-D-02).
+
+A persistência dos executáveis é opcional, selecionada por `--state`. O diretório pai DEVE
+existir. `Archivum` canonicaliza o pai e recusa symlink no componente final, inclusive
+symlink pendente. A proteção pressupõe diretório privado e escritores cooperantes; não
+protege contra substituição hostil de componentes, hardlinks ou escrita externa ao protocolo.
+
+A leitura e a gravação adquirem o lock vazio `<state>.lock` por criação exclusiva. O lock
+permanece somente durante a transação. Um lock preexistente causa erro e NÃO DEVE ser removido
+automaticamente. A recuperação de lock órfão exige verificar a ausência de escritor ativo.
+Somente arquivo ausente permite genesis. Estado ilegível, com tamanho diferente de 32 bytes
+ou com dígito inválido causa erro sem substituição. `--seed` com estado existente causa erro.
+
+A fotografia volátil contém os bytes e o `mtime` opcional obtidos pelo mesmo descritor. Ao
+salvar, `Archivum` relê a fotografia sob lock e compara presença, bytes e `mtime`; divergência
+causa erro sem repetição automática. Bytes iguais aos solicitados preservam o arquivo e seu
+`mtime` depois dessa comparação. Dígitos maiúsculos válidos são normalizados na gravação.
+
+Uma gravação cria temporário exclusivo no mesmo pai, escreve os 32 bytes, solicita `sync_all`,
+fecha o descritor e substitui o nome por `rename`, sem apagar previamente o destino. A
+fotografia é atualizada após `rename`. Em Unix, a rotina solicita também sincronização do
+pai. A operação remove apenas lock e temporário próprios e informa falhas de limpeza.
+
+Uma falha após `rename` ou na liberação do lock pode coexistir com o novo estado publicado.
+O diagnóstico informa essa possibilidade; a instância recusa novas gravações após publicação
+incerta. O executável DEVE encerrar sem repetição ou restauração automática. Em Unix local,
+a substituição do nome é atômica; isso não implica durabilidade absoluta após apagão. Não há
+garantia equivalente para todos os sistemas de arquivos ou para arquivos remotos. Bytes e
+`mtime` admitem uma sequência de alterações que retorna à mesma fotografia; sem `mtime`, a
+comparação protege apenas os bytes sob o lock cooperante.
+
+`write_atomic` aplica escrita, sincronização e substituição a imagens sem impor o formato de
+32 bytes. A rotina também recusa symlink no destino e nunca apaga o arquivo anterior antes
+de `rename`. Ela não oferece o protocolo de comparação de fotografias de `Archivum`.
 
 ## 4. Contrato de hospedeiro
 
@@ -115,7 +151,8 @@ Protocolo por sessão:
 1. O hospedeiro mede o meio e constrói `Facultates` (dimensões, cor, cadência, entradas, língua,
    hemisfério, fuso, orçamento). Versões de sistema e APIs disponíveis entram em `Facultates`
    como capacidades, nunca como nomes.
-2. Lê o estado persistido (32 dígitos) ou chama `genesis(seed)` com semente derivada do relógio.
+2. Lê o estado persistido (32 dígitos) ou, quando ausente, chama `genesis(seed)` com semente
+   explícita ou derivada dos bytes do relógio. Estado inválido causa erro, sem genesis.
 3. Chama `consilium(&facultates, &mundus, energy)` e guarda o `Regimen`.
 4. Hospedeiro vivo: a cada `tick_ms` constrói `Indicia` e chama `step(&facultates, &indicia)`;
    a cada `interval_ms` chama `render` (ou `render_cellae`), mapeia a luminância pela paleta e
@@ -125,12 +162,77 @@ Protocolo por sessão:
    energia, o `modus`, o orçamento calculado e a chave semântica de REQ-C-05; reavalia
    `consilium` quando algum deles muda. Essa comparação não executa a busca incondicionalmente
    em todo tick. Em `tabula`, o tempo decorrido vem do `mtime` do próprio arquivo de estado,
-   conforme REQ-H-06; uma época sintética exige contagem explícita de ticks.
+   conforme REQ-H-06; uma época sintética exige contagem explícita de ticks. O avanço estático
+   usa o `tick_ms` do regimen anterior e desenha com o regimen reavaliado. Em execução contínua,
+   o próximo prazo usa o novo período.
 5. Em oclusão, chama `step(&facultates, &indicia)` uma única vez com `occluded = true` e
    suspende a cadência.
 6. Antes de ocultar a obra por retorno do observador, chama `step` e `render` com
    `leaving = true` uma vez e exibe esse quadro durante o esmaecimento.
 7. Persiste o estado em marcos (`Nuntius` com CLAUSURA, CLINAMEN ou AGNITIO) e ao encerrar.
+
+### 4.1 Biblioteca comum
+
+`sisyphium-hospes` depende apenas do núcleo e usa `std`. `argumenta` valida opções únicas e
+constrói `Communia`; `tempus` converte o relógio e limita o avanço; `electio` conserva o
+regimen até uma transição de REQ-C-05; `archivum` implementa §3.3. `tabula` e `textus` usam
+essas leis. `limen` depende diretamente do núcleo. Nenhum cache integra o estado persistido.
+
+`Electio::select` compara todas as `Facultates`, a faixa de energia, `Modus`, o orçamento
+calculado e os seis predicados de REQ-C-05. Uma mudança de energia dentro da mesma faixa pode
+alterar o orçamento. Uma mudança apenas de `semen` não invalida o regimen. O hospedeiro DEVE
+consultar a seleção antes e após a evolução; uma chave igual não executa nova busca.
+
+`tempus::epoch_ms` retorna ausência se o relógio não cabe em `i64` de milissegundos.
+`elapsed_ticks` calcula a diferença em `i128`, usa zero para `mtime` ausente ou futuro e
+limita a divisão inteira a 65 536 ticks. Período zero produz zero ticks. O excesso além desse
+limite é descartado; nenhum resto temporal é gravado. O tempo monotônico governa a espera
+do hospedeiro contínuo; o relógio civil alimenta somente `Indicia` e o avanço inicial.
+
+Antes de alocar, dimensões DEVEM ser positivas e seu produto DEVE ser verificado.
+`MAX_PIXELS` limita o raster a 33 554 432 pixels, `MAX_CELLS` limita a grade a 1 048 576
+células e `MAX_TERMINAL_BYTES` limita um quadro de terminal codificado a 67 108 864 bytes.
+Esses limites operacionais são independentes e não alteram os domínios do núcleo.
+
+### 4.2 Opções dos executáveis
+
+Opções desconhecidas, repetidas, sem valor exigido ou fora do domínio causam erro. Valores
+numéricos exigem texto UTF-8; caminhos preservam a representação nativa. O parser retorna
+`io::Result`. O executável converte falhas de parsing em `Error::Usus` (saída 2) e falhas
+operacionais em `Error::Operatio` (saída 1), pela origem e não por `ErrorKind`. Sucesso,
+`--help` e `--version` saem com 0; ajuda e versão não produzem efeitos em disco.
+
+| Opção comum | Domínio | Padrão |
+| --- | --- | --- |
+| `--epoch` | `i64`, milissegundos UTC; exige `--ticks` | relógio do sistema |
+| `--ticks` | 0..=65 536; precede `mtime` | tempo decorrido conservador |
+| `--energy` | 0..=255 | 255 |
+| `--seism` | 0..=255 | 0 |
+| `--lingua` | `en`, `pt` | `en` |
+| `--seed` | `u64` decimal; incompatível com estado existente | bytes do relógio convertidos a `u64` |
+| `--state` | caminho nativo | sem persistência |
+| `--compute` | 0..=255 | 255 |
+| `--color-bits` | 1, 4, 8, 24 | 8 |
+| `--tz-offset` | −1 439..=1 439 minutos | −180 |
+| `--australis` | `true`, `false` | `true` |
+
+`tabula` recebe `--width` e `--height` em 1..=65 535, padrão 320×180, respeitando
+`MAX_PIXELS`; `--output` padrão `-`; `--format png|ppm` padrão `png`, sem inferência por
+extensão. A apresentação estática declara `max_hz = 0`; `--max-hz` não se aplica.
+`--stilus creta|musivum|littera|bicolor` exige `--metire`; a medição recusa `--state`,
+`--output` e `--ticks` e não publica imagem. Sem stilus explícito, mede as quatro famílias.
+
+`textus` recebe `--cols` e `--rows` em 1..=65 535, `--cells true|false` padrão `true`,
+`--frames` em 1..=`u32::MAX`, `--max-hz` em 0..=24 padrão 24 e `--plain`. Sem `--frames`,
+a execução é contínua somente em terminal compatível; saída redirecionada ou plain usa um
+quadro. `--epoch` exige `--ticks` e um quadro. `--plain` proíbe sequências ANSI. Sem suporte
+ANSI comprovado, a saída usa plain. `--max-hz 0` permite no máximo um quadro por minuto,
+com espera; não implica repetição ocupada. `textus` não recebe opções de stilus ou medição.
+
+`textus` salva marcos e encerramento controlado, sem escrita a cada quadro. Os sinais
+admitidos em [ADR 0008](adr/0008-fronteiras-nativas-dos-hospedeiros.md) somente solicitam o
+encerramento; a gravação ocorre fora do callback. Encerramento abrupto, apagão ou fechamento
+de janela no sistema que não admite esse sinal podem perder a evolução desde o último marco.
 
 ## 5. Formatos de saída
 
