@@ -1,10 +1,14 @@
 //! Static image host consuming the public world laws (REQ-H-02, REQ-H-06).
 #![forbid(unsafe_code)]
 pub mod imago;
+pub mod metire;
 mod via;
 
 use imago::{Forma, write_image};
-use sisyphium::{hospes::Tabula, mundus::Mundus};
+use sisyphium::{
+    hospes::{Stilus, Tabula},
+    mundus::Mundus,
+};
 use sisyphium_hospes::{
     Error, MAX_PIXELS,
     archivum::{Archivum, write_atomic},
@@ -29,6 +33,8 @@ const OPTIONS: &[(&str, bool)] = &[
     ("--format", true),
     ("--help", false),
     ("--version", false),
+    ("--metire", false),
+    ("--stilus", true),
 ];
 /// Documents implemented flags without advertising future measurement modes (REQ-H-01).
 const HELP: &str = "sisyphium-tabula [options]\n\
@@ -47,6 +53,8 @@ const HELP: &str = "sisyphium-tabula [options]\n\
 --color-bits 1|4|8|24 default 8\n\
 --tz-offset -1439..1439 default -180 minutes\n\
 --australis true|false default true\n\
+--metire              render-only diagnostic TSV; no experience flags\n\
+--stilus NAME         with --metire only; otherwise measures all four\n\
 --help                display usage\n\
 --version             display version\n";
 
@@ -72,6 +80,24 @@ pub fn run(args: &[OsString], output: &mut dyn Write) -> Result<(), Error> {
             .and_then(|()| output.flush())
             .map_err(Error::Operatio)?;
         return Ok(());
+    }
+    let measure = options.take("--metire").is_some();
+    let style = options.take("--stilus");
+    if measure {
+        let style = style
+            .map(|value| match value.to_str() {
+                Some("creta") => Ok(Stilus::Creta),
+                Some("musivum") => Ok(Stilus::Musivum),
+                Some("littera") => Ok(Stilus::Littera),
+                Some("bicolor") => Ok(Stilus::Bicolor),
+                _ => Err(Error::Usus(invalid("unknown measurement stilus"))),
+            })
+            .transpose()?;
+        options.finish().map_err(Error::Usus)?;
+        return metire::run(style, output).map_err(Error::Operatio);
+    }
+    if style.is_some() {
+        return Err(Error::Usus(invalid("--stilus requires --metire")));
     }
     let common = Communia::parse(&mut options).map_err(Error::Usus)?;
     let width = dimension(options.take("--width"), 320).map_err(Error::Usus)?;

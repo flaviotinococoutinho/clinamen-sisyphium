@@ -133,7 +133,7 @@ fn invalid_usage_has_no_output_or_state() {
         vec!["--width", "65535", "--height", "65535"],
         vec!["--epoch", "1"],
         vec!["--ticks", "65537"],
-        vec!["--metire"],
+        vec!["--metire", "--metire"],
         vec!["--stilus", "creta"],
         vec!["--format", "jpeg"],
         vec!["--energy", "256"],
@@ -543,4 +543,37 @@ fn probe_error_cleans_only_owned_files_and_preserves_state() {
     assert_eq!(run(&options, &mut Vec::new()).unwrap_err().exit_code(), 1);
     assert_eq!(fs::read(&state).unwrap(), original);
     assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+}
+
+#[test]
+fn measurement_arguments_are_isolated() {
+    for values in [
+        vec!["--stilus", "creta"],
+        vec!["--metire", "--stilus", "unknown"],
+        vec!["--metire", "--state", "never-created"],
+        vec!["--metire", "--output", "never-created"],
+        vec!["--metire", "--ticks", "1"],
+        vec!["--metire", "--seed", "1"],
+        vec!["--metire", "--width", "320"],
+        vec!["--metire", "--format", "png"],
+    ] {
+        let mut output = Vec::new();
+        assert_eq!(run(&args(&values), &mut output).unwrap_err().exit_code(), 2);
+        assert!(output.is_empty());
+    }
+    // Fail on the TSV header before any measurements: every supported selection parses.
+    for style in [
+        None,
+        Some("creta"),
+        Some("musivum"),
+        Some("littera"),
+        Some("bicolor"),
+    ] {
+        let mut options = vec!["--metire"];
+        if let Some(style) = style {
+            options.extend(["--stilus", style]);
+        }
+        let error = run(&args(&options), &mut Defectus(io::ErrorKind::BrokenPipe)).unwrap_err();
+        assert_eq!(error.exit_code(), 1);
+    }
 }

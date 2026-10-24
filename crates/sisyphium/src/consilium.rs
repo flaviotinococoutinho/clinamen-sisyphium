@@ -57,17 +57,18 @@ const BUDGET_DIVISOR: u32 = 64;
 const BASE_COST: u32 = 10;
 
 /// Units of work of each stratum beyond the first (`docs/06-consilium.md` §3).
-const STRATUM_COST: u32 = 3;
+const STRATUM_COST: u32 = 18;
 
 /// Units of work of each layer per frame at 320×180, the byte at bit 8·i for the layer of bit
-/// 2ⁱ (`docs/06-consilium.md` §3): sky 6, frame 5, chronicles 1 per line, personae 2, ruins 1,
-/// impossibilia 4, hexagram 1, dither 4.
-const LAYER_COSTS: u64 = 0x0401_0401_0201_0506;
+/// 2ⁱ (`docs/06-consilium.md` §3): sky 2, frame 5, chronicles 1 per line, personae 1, ruins 2,
+/// impossibilia 1, hexagram 1, dither 0. These are conservative isolated increments,
+/// not a universal duration bound; see the calibration limitations in §3.
+const LAYER_COSTS: u64 = 0x0001_0102_0101_0502;
 
 /// Units of work each stilus adds per frame, the byte at bit 8·d for the discriminant d
-/// (`docs/06-consilium.md` §3): Creta 0, Musivum 0, Littera 2 (the map to glyphs), Bicolor 3
+/// (`docs/06-consilium.md` §3): Creta 0, Musivum 0, Littera 34 (the map to glyphs), Bicolor 3
 /// (the threshold of the dither).
-const STILUS_COSTS: u32 = 0x0302_0000;
+const STILUS_COSTS: u32 = 0x0322_0000;
 
 /// Pixels of the frame on which the units of work are counted: 320·180 = 57 600, the logical
 /// frame of scale 1 (REQ-L2-11).
@@ -217,7 +218,7 @@ fn layer_sum(table: u64, layers: u8, lines: u8, doubled: u8) -> u32 {
 }
 
 /// Units of work of one frame of the regimen at 320×180 (`docs/06-consilium.md` §3): the base,
-/// 3 per stratum beyond the first, the layers and the stilus.
+/// 18 per stratum beyond the first, the layers and the stilus.
 fn units(regimen: &Regimen) -> u32 {
     let strata = u32::from(regimen.strata.saturating_sub(1)).saturating_mul(STRATUM_COST);
     BASE_COST
@@ -793,14 +794,52 @@ mod tests {
         }
     }
 
-    /// A plentiful host reaches 80 % of the situation's maximum (REQ-C-03).
+    /// A host whose complete base fits the budget reaches the aspiration immediately
+    /// (REQ-C-03); 160×90 admits that base with the calibrated costs.
     #[test]
     fn consilium_reaches_aspiration() {
+        let f = host(160, 90, 255, 24);
+        let w = Mundus::genesis(1);
+        let r = consilium(&f, &w, 255);
+        assert_eq!(value(&r, &w, &f, 255), 45);
+        assert!(value(&r, &w, &f, 255) * 5 >= value_max(&w, &f, 255) * 4);
+        assert!(cost(&r, &f) <= budget(&f, 255));
+    }
+
+    /// The independent model retains the 320×180 case: 64 proposals may finish below
+    /// aspiration even though an admissible regimen attains it (REQ-C-03).
+    #[test]
+    fn consilium_calibrated_search_can_miss_aspiration() {
         let f = Facultates::default();
         let w = Mundus::genesis(1);
         let r = consilium(&f, &w, 255);
-        assert!(value(&r, &w, &f, 255) * 5 >= value_max(&w, &f, 255) * 4);
+        assert_eq!(
+            r,
+            Regimen {
+                stilus: Stilus::Littera,
+                strata: 4,
+                tick_ms: 42,
+                interval_ms: 60_000,
+                layers: 181,
+                lines: 6,
+            }
+        );
+        assert_eq!((value(&r, &w, &f, 255), value_max(&w, &f, 255)), (30, 45));
         assert!(cost(&r, &f) <= budget(&f, 255));
+        let attainable = Regimen {
+            stilus: Stilus::Creta,
+            strata: 4,
+            tick_ms: 42,
+            interval_ms: 125,
+            layers: CAELUM | MARGO | ANNALES | HEXAGRAMMA | PUNCTA,
+            lines: 6,
+        };
+        assert!(cost(&attainable, &f) <= budget(&f, 255));
+        assert_eq!(value(&attainable, &w, &f, 255), 43);
+        assert!(satisfices(
+            value(&attainable, &w, &f, 255),
+            value_max(&w, &f, 255)
+        ));
     }
 
     /// The bytes of a packed table, from bit 0.
@@ -852,15 +891,15 @@ mod tests {
     /// The cost of `docs/06-consilium.md` §3 read from its table by name, with the scale
     /// s = max(1, min(W/320, H/180)) of REQ-L2-11: an independent statement of the law.
     fn cost_reference(regimen: &Regimen, host: &Facultates) -> u32 {
-        let mut units = 10 + 3 * u64::from(regimen.strata.saturating_sub(1));
+        let mut units = 10 + 18 * u64::from(regimen.strata.saturating_sub(1));
         for (layer, work) in [
-            (CAELUM, 6),
+            (CAELUM, 2),
             (MARGO, 5),
-            (PERSONAE, 2),
-            (RUINAE, 1),
-            (IMPOSSIBILIA, 4),
+            (PERSONAE, 1),
+            (RUINAE, 2),
+            (IMPOSSIBILIA, 1),
             (HEXAGRAMMA, 1),
-            (PUNCTA, 4),
+            (PUNCTA, 0),
         ] {
             if regimen.has(layer) {
                 units += work;
@@ -870,7 +909,7 @@ mod tests {
             units += u64::from(regimen.lines);
         }
         units += match regimen.stilus {
-            Stilus::Littera => 2,
+            Stilus::Littera => 34,
             Stilus::Bicolor => 3,
             Stilus::Creta | Stilus::Musivum => 0,
         };
@@ -963,9 +1002,9 @@ mod tests {
         assert_eq!(UNIT_AREA, 320 * 180);
         assert_eq!(compositio(320, 180, LINES_MAX).s, 1);
         assert_eq!(MS_PER_S, 1000);
-        assert_eq!((BASE_COST, STRATUM_COST, STRATUM_VALUE), (10, 3, 2));
-        assert_eq!(bytes(LAYER_COSTS.into(), 9), [6, 5, 1, 2, 1, 4, 1, 4, 0]);
-        assert_eq!(bytes(STILUS_COSTS.into(), 5), [0, 0, 2, 3, 0]);
+        assert_eq!((BASE_COST, STRATUM_COST, STRATUM_VALUE), (10, 18, 2));
+        assert_eq!(bytes(LAYER_COSTS.into(), 9), [2, 5, 1, 1, 2, 1, 1, 0, 0]);
+        assert_eq!(bytes(STILUS_COSTS.into(), 5), [0, 0, 34, 3, 0]);
         assert_eq!(bytes(LAYER_VALUES.into(), 9), [8, 5, 2, 6, 3, 7, 2, 2, 0]);
         assert_eq!(bytes(CADENCE_VALUES.into(), 6), [6, 4, 2, 1, 0, 0]);
         assert_eq!(bytes(STILUS_VALUES.into(), 5), [4, 3, 2, 1, 0]);
@@ -1066,22 +1105,22 @@ mod tests {
             layers: CAELUM | MARGO | ANNALES | HEXAGRAMMA | PUNCTA,
             lines: 6,
         };
-        assert_eq!(cost(&base, &small), 41_000 / 42);
+        assert_eq!(cost(&base, &small), 78_000 / 42);
         let full = Regimen {
             layers: LAYERS_ALL,
             ..base
         };
-        assert_eq!(cost(&full, &small), 48_000 / 42);
+        assert_eq!(cost(&full, &small), 82_000 / 42);
         let as_stilus = |stilus| Regimen { stilus, ..base };
-        assert_eq!(cost(&as_stilus(Stilus::Littera), &small), 43_000 / 42);
-        assert_eq!(cost(&as_stilus(Stilus::Bicolor), &small), 44_000 / 42);
-        assert_eq!(cost(&base, &large), 41 * 36 * 1000 / 42);
+        assert_eq!(cost(&as_stilus(Stilus::Littera), &small), 112_000 / 42);
+        assert_eq!(cost(&as_stilus(Stilus::Bicolor), &small), 81_000 / 42);
+        assert_eq!(cost(&base, &large), 78 * 36 * 1000 / 42);
         let mosaic = as_stilus(Stilus::Musivum);
         assert_eq!(cost(&mosaic, &large), cost(&mosaic, &small));
         assert_eq!(cost(&mosaic, &small), cost(&base, &small));
         assert_eq!(
             u64::from(cost(&mosaic, &host(1000, 500, 255, 24))),
-            41 * 500 * 250 * 1000 / (57_600 * 42)
+            78 * 500 * 250 * 1000 / (57_600 * 42)
         );
         let silent = Regimen {
             layers: base.layers & !ANNALES,
@@ -1093,7 +1132,7 @@ mod tests {
         );
         assert_eq!(
             cost(&Regimen { lines: 2, ..base }, &small),
-            (41 - 4) * 1000 / 42
+            (78 - 4) * 1000 / 42
         );
         assert_eq!(
             cost(
@@ -1103,7 +1142,7 @@ mod tests {
                 },
                 &small
             ),
-            0
+            1
         );
         assert_eq!(
             cost(
@@ -1124,7 +1163,7 @@ mod tests {
             layers: LAYERS_ALL,
             lines: u8::MAX,
         };
-        assert_eq!(units(&heaviest), 1053);
+        assert_eq!(units(&heaviest), 4852);
         assert_eq!(cost(&heaviest, &vast), u32::MAX);
         assert_eq!(cost(&base, &host(0, 0, 255, 24)), 0);
         let hosts = [
@@ -1609,7 +1648,7 @@ mod tests {
         };
         assert_eq!(
             cost(&floor(&wide, &world(Modus::Vigilia), 255), &wide),
-            12 * 144 / 60
+            44 * 144 / 60
         );
     }
 
@@ -1642,7 +1681,7 @@ mod tests {
         let small = Facultates::default();
         let cases = [
             (small, world(Modus::Vigilia), 255, 45, 0),
-            (cells, world(Modus::Somnium), 200, 58, 15 * 144 / 60),
+            (cells, world(Modus::Somnium), 200, 58, 62 * 144 / 60),
             (mono, world(Modus::AmorFati), 255, 42, 13 * 36 / 60),
             (small, world(Modus::Quies), 255, 41, 0),
             (host(1920, 1080, 255, 24), serene, 60, 45, 0),
@@ -1769,38 +1808,38 @@ mod tests {
                 host(1920, 1080, 255, 24),
                 first,
                 150,
-                (Stilus::Musivum, 4, 125, 181, 6),
+                (Stilus::Musivum, 4, 125, 141, 6),
             ),
             (
                 host(1280, 720, 40, 60),
                 first,
                 12,
-                (Stilus::Bicolor, 4, 60_000, 192, 0),
+                (Stilus::Bicolor, 1, 60_000, 235, 0),
             ),
             (
                 host(640, 360, 96, 24),
                 first,
                 200,
-                (Stilus::Musivum, 4, 42, 175, 6),
+                (Stilus::Creta, 4, 42, 165, 6),
             ),
             (
                 host(1920, 1080, 255, 24),
                 first,
                 12,
-                (Stilus::Bicolor, 4, 60_000, 199, 6),
+                (Stilus::Bicolor, 4, 60_000, 203, 0),
             ),
             (
                 host(320, 180, 40, 24),
                 dream,
                 200,
-                (Stilus::Creta, 4, 42, 223, 6),
+                (Stilus::Creta, 4, 42, 199, 6),
             ),
             (terminal, serene, 60, (Stilus::Littera, 4, 250, 134, 6)),
             (
                 host(1920, 1080, 255, 24),
                 amor,
                 255,
-                (Stilus::Creta, 3, 42, 193, 0),
+                (Stilus::Musivum, 3, 42, 221, 6),
             ),
             (panel, first, 150, (Stilus::Bicolor, 1, 125, 0, 0)),
         ];
@@ -1851,7 +1890,7 @@ mod tests {
             }
         }
         assert_eq!(stream.len(), 1568 * 12);
-        assert_eq!(fnv1a(&stream), 0x61B6_89BF_4012_3868);
+        assert_eq!(fnv1a(&stream), 0xE3C9_7CB2_8671_2F55);
     }
 
     /// The search satisfices: a start that reaches the level of aspiration is kept, the result

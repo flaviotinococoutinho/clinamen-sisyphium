@@ -33,16 +33,16 @@ habilitadas e o acréscimo do stilus.
 | Componente | Custo por quadro a 320×180 |
 | --- | --- |
 | base (ardósia, encosta 1 estrato, figura, rocha) | 10 |
-| estrato adicional | 3 |
-| céu | 6 |
+| estrato adicional | 18 |
+| céu | 2 |
 | moldura | 5 |
 | crônicas (por linha) | 1 |
-| personae | 2 |
-| ruínas | 1 |
-| impossibilia | 4 |
+| personae | 1 |
+| ruínas | 2 |
+| impossibilia | 1 |
 | hexagrama | 1 |
-| pontilhado | 4 |
-| Littera (mapa) | 2 |
+| pontilhado | 0 |
+| Littera (mapa) | 34 |
 | Bicolor (limiar) | 3 |
 
 `cost = ⌊unidades · área · 1000 / (57 600 · interval_ms)⌋`, com os produtos em `u64` e resultado
@@ -55,6 +55,58 @@ Orçamento: `budget = compute · energy / 64` unidades por segundo. Exemplo: com
 (compute 255) ligado à energia (255): 1016 unidades/s. Telefone (compute 96) a 30 % (77): 115
 unidades/s. As divisões inteiras descartam a fração; um quadro por minuto pode custar zero
 unidades/s.
+
+### Calibração dos incrementos
+
+A tabela é conservadora para os incrementos isolados observados. NÃO constitui ajuste de
+duração de quadros completos nem limite superior universal. Creta e Musivum têm acréscimo
+zero; a base permanece 10. Medir tempo de execução NÃO equivale a medir energia física.
+
+A rotina `sisyphium-tabula --metire` DEVE medir os cinco cenários de
+[verificação](08-verificacao.md#6-medições), os quatro stili e os dois tamanhos. Cada conjunto
+usa 1000 amostras a 320×180 ou 100 a 1920×1080, precedidas de aquecimento. Somente
+`Mundus::render` fica entre as leituras do relógio; alocação, construção/evolução do mundo,
+escolha de regimen, paleta, conversão, hash e escrita ficam fora. Argumentos e raster
+atravessam `black_box`. A mediana ocupa o índice n/2 e p95 o índice ⌊95·n/100⌋ após ordenação.
+
+Cada par mantém mundo, medições e parâmetros iguais, salvo o componente estudado. A ordem
+base/variante alterna a cada amostra. Os pares comparam um estrato a dois, três e quatro;
+zero camadas a cada camada isolada; zero linhas a uma até seis; Littera e Bicolor a Creta.
+As condições narrativas necessárias são ativadas nos dois lados. Seis linhas requerem uma
+crônica completa e a linha de interrupção. O TSV registra a mediana das diferenças pareadas
+assinadas `Δ`, a mediana da base `b` e a quantidade acrescentada `q`.
+
+O coeficiente de cada conjunto é `⌈10·max(0, Δ)/(b·q)⌉`; a divisão pela quantidade precede
+o teto. Base zero é erro. O coeficiente da tabela é o maior resultado entre conjuntos, sem
+misturar amostras de mundos distintos. `scripts/calibrate-costs.py` valida a matriz completa,
+propõe a tabela, registra dispersão e compara predições com os 40 quadros completos; o script
+NÃO altera o núcleo. Coeficientes acima de 255 exigem revisão da representação, sem truncamento.
+
+Os 40 quadros completos apresentam desvios superiores a 25% com esta tabela.
+A predição aditiva com base da mesma dimensão excedeu as medianas observadas entre 168,19%
+e 705,82%. A predição que ancora a base em Creta 320×180 e aplica a área lógica da fórmula
+variou de −85,08% a +684,88%. Estes resíduos impedem interpretar `cost` como previsão de
+duração ou garantia de orçamento físico.
+
+A não aditividade tem causas concretas: os estratos isolados são medidos sem pontilhado,
+cujo preenchimento pode percorrer menos pontos; PUNCTA teve 40 de 40 deltas negativos,
+resultando em acréscimo zero. ANNALES altera o plinto e reduz a área disponível para a
+encosta, além de desenhar glifos; 216 de 240 deltas foram negativos. Os máximos combinam
+condições narrativas distintas; o teto inteiro amplia incrementos pequenos. Musivum também
+amplia o raster ao tamanho físico, trabalho que a área lógica não representa. Os resíduos
+DEVEM acompanhar a tabela, sem ajustar amostras para obter concordância. Ambiente, TSV,
+dispersão por conjunto e hashes da medição integram a evidência da alteração.
+
+O modelo independente `scripts/consilium-reference.py` gera 1568 buscas e 64 casos de
+orçamento zero. O corpus versionado em `crates/sisyphium/tests/fixtures/consilium.tsv` é comparado à busca
+Rust; o hash FNV-1a das 1568 buscas desta tabela é `E3C97CB286712F55`. A opção `--baseline`
+verifica a tabela anterior com hash `61B689BF40123868`. Somente os quatro custos variam;
+valor semiótico, orçamento, aspiração, aceitação, forçamentos e fórmula permanecem iguais.
+A aspiração de 80% é alvo e critério de parada; as 64 propostas NÃO garantem encontrá-la,
+mesmo quando existe um regimen admissível que a satisfaz. O resultado retém o maior escore
+encontrado pela busca descrita em §5. Com os custos desta tabela, genesis(1), 320×180 e
+energia 255 produzem valor 30 de máximo 45; um regimen admissível com intervalo 125 ms
+atinge 43. A regressão independente conserva ambos os resultados.
 
 ## 4. Valor semiótico
 
