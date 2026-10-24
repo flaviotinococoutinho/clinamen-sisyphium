@@ -72,7 +72,11 @@ def isolated_environment(base, home, commands):
                TMPDIR=str(temporary), TMP=str(temporary), TEMP=str(temporary),
                PATH=str(commands), HOST_ROOT=str(base), HOST_OWNER=base.name,
                HOST_LOG=str(base / 'commands.jsonl'), HOST_PNG=PNG.hex(),
-               PYTHONDONTWRITEBYTECODE='1', LC_ALL='C')
+               PYTHONDONTWRITEBYTECODE='1', LC_ALL='C',
+               # PowerShell reads this before startup and may write the cache in
+               # the background after module import. Keep it outside the HOME
+               # whose dry-run immutability is asserted below.
+               PSModuleAnalysisCachePath=str(temporary / 'ModuleAnalysisCache'))
     return env
 
 
@@ -80,9 +84,13 @@ def guard_environment(base, env, commands):
     root = base.resolve()
     require_guard(env['PATH'] == str(commands), 'PATH contains unreviewed directories')
     for key in ('HOME','USERPROFILE','LOCALAPPDATA','APPDATA','XDG_CONFIG_HOME','XDG_STATE_HOME',
-                'XDG_CACHE_HOME','XDG_DATA_HOME','XDG_RUNTIME_DIR','TMPDIR','TMP','TEMP','HOST_LOG'):
+                'XDG_CACHE_HOME','XDG_DATA_HOME','XDG_RUNTIME_DIR','TMPDIR','TMP','TEMP','HOST_LOG',
+                'PSModuleAnalysisCachePath'):
         path = Path(env[key]).resolve()
         require_guard(root in path.parents, key + ' escapes test root')
+    cache = Path(env['PSModuleAnalysisCachePath']).resolve()
+    require_guard(cache == root / 'tmp' / 'ModuleAnalysisCache', 'module cache escaped dedicated temporary path')
+    require_guard(Path(env['HOME']).resolve() not in cache.parents, 'module cache overlaps observed HOME')
     require_guard(env['HOST_OWNER'] == (base / '.owner').read_text(), 'wrong artifact owner')
 
 
@@ -410,7 +418,14 @@ def verify_windows():
             arguments.write_text(json.dumps(['-Action',action,'-Binary',str(binary),'-StateDir',str(state)] + list(extra)),encoding='utf-8-sig')
             return execute([shell,'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(wrapper)],actual_env,expected)
         output = run()
-        assert not list(home.iterdir()) and not entries(log) and not task.exists()
+        home_entries = sorted(path.relative_to(home).as_posix() for path in home.rglob('*'))
+        fake_calls = [name for name, _ in entries(log)]
+        task_exists = task.exists()
+        # Report only relative fixture names and command names, never file contents
+        # or argv. Preserve all three strict conditions independently.
+        assert not home_entries, {'dry_run_home_entries': home_entries}
+        assert not fake_calls, {'dry_run_fake_calls': fake_calls}
+        assert not task_exists, {'dry_run_task_exists': task_exists}
         assert '"127"' in output and '"800"' in output and '"600"' in output
         output = run(overrides={'HOST_INVALID':'1'})
         assert '"255"' in output and '"320"' in output and '"180"' in output
