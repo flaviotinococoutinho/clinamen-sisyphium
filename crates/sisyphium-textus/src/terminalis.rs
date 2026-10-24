@@ -120,20 +120,36 @@ pub(crate) fn encode_blocks(
     let pixels = pixels
         .get(..area)
         .ok_or_else(|| invalid("short raster buffer"))?;
+    let (mut dark, mut light) = pixels.iter().fold((15_u8, 0_u8), |(dark, light), pixel| {
+        (dark.min(pixel >> 4), light.max(pixel >> 4))
+    });
+    if height % 2 != 0 {
+        dark = dark.min(1);
+        light = light.max(1);
+    }
+    // Plain output retains the frame's observed contrast without terminal colors.
+    let threshold = dark + (light - dark) / 2;
     for y in (0..usize::from(height)).step_by(2) {
         for x in 0..usize::from(width) {
+            let top = pixels[y * usize::from(width) + x] >> 4;
+            let bottom = pixels
+                .get((y + 1) * usize::from(width) + x)
+                .map_or(1, |pixel| pixel >> 4);
             if !plain {
-                color(
-                    bytes,
-                    palette[usize::from(pixels[y * usize::from(width) + x] >> 4)],
-                    false,
-                )?;
-                let bottom = pixels
-                    .get((y + 1) * usize::from(width) + x)
-                    .map_or(1, |pixel| pixel >> 4);
+                color(bytes, palette[usize::from(top)], false)?;
                 color(bytes, palette[usize::from(bottom)], true)?;
             }
-            bytes.extend_from_slice("▀".as_bytes());
+            let glyph = if plain {
+                match (top > threshold, bottom > threshold) {
+                    (false, false) => " ",
+                    (true, false) => "▀",
+                    (false, true) => "▄",
+                    (true, true) => "█",
+                }
+            } else {
+                "▀"
+            };
+            bytes.extend_from_slice(glyph.as_bytes());
         }
         end_row(bytes, plain);
     }
