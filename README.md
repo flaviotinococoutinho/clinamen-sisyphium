@@ -14,9 +14,9 @@ nos crates e no ABI: `sisyphium`.
 
 ## Estado
 
-Checkpoint presente: 2 (signo e corpo: `concentus`, `signum` com pixel, raster, fonte, céu,
-encosta, moldura, compositor e quatro stili; `corpus`; quadros-ouro). Evidências de cada checkpoint estão no PR correspondente e na
-mensagem da tag `cp/N-assunto`.
+Checkpoint presente: 3 (escolha, percepção e narração: `arbitrium` com corpus em duas línguas,
+`sensus`, `transumptio`, `consilium`; `mundus::step`, `advance` e `render`). Evidências de cada
+checkpoint estão no PR correspondente e na mensagem da tag `cp/N-assunto`.
 
 ## Verificação
 
