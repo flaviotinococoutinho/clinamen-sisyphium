@@ -121,7 +121,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=Path("target/debug/sisyphium-tabula"))
     options = parser.parse_args()
-    verify(options.binary.resolve(strict=True))
+    binary = options.binary
+    if os.name == "nt" and not binary.is_file() and binary.suffix.lower() != ".exe":
+        binary = Path(str(binary) + ".exe")
+    verify(binary.resolve(strict=True))
 
 
 if __name__ == "__main__":
