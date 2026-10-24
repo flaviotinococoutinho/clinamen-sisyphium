@@ -28,7 +28,9 @@ _kintsugi_).
 Tom e classe de estrato de cada elemento no quadro de giz, base dos demais stili (REQ-L5-03). As
 linhas e os glifos usam o tom do elemento, conforme a tabela. Encosta, crista e ruínas
 respeitam adicionalmente o teto 15−`contrastus`, inclusive quando traçadas por colunas
-sólidas; a sombra usa tom 2.
+sólidas; a sombra usa tom 2. O maior contraste é 13 = 15−2: tom 2 é o menor tom que
+Bicolor conserva por pontilhado, pois tons 0 e 1 viram preto. Em Quies, a ardósia de tom 1
+vira preto e a encosta limitada a tom 2 conserva pontos brancos.
 
 | Elemento | Tom | Classe | Traçado |
 | --- | --- | --- | --- |
@@ -132,7 +134,7 @@ qualquer desenho e lido por todos os canais. Nenhum canal decide sozinho.
 | Canal | Campo do concentus | Derivação |
 | --- | --- | --- |
 | Tom | `tonus` 0..=15 e paleta | `onus`, `tranquillitas`, `modus`, `festum` (REQ-L5-02) |
-| Contraste | `contrastus` 8..=15; tom de cada traço da encosta e das ruínas ≤ 15−`contrastus` | energia 179..=255 → 8; 77..=178 → 10; 39..=76 → 12; 0..=38 → 15; Quies força 15 |
+| Contraste | `contrastus` 8..=13; tom de cada traço da encosta e das ruínas ≤ 15−`contrastus` | energia 179..=255 → 8; 77..=178 → 10; 39..=76 → 12; 0..=38 → 13; Quies força 13 = 15−2 |
 | Delimitação | `linea` ∈ {s, 2s} e rótulo de aresta padrão | `tranquillitas` (REQ-L5-05); impossibilia por condição |
 | Cadência | `cadentia`: cadência base em passos/min (64, 48 ou 0) | regimen (`tick_ms`); `conatus` |
 | Registro do texto | `registrum` ∈ {íntimo, vivo, civil, epocal, abstrato} | última linha do prefixo efetivo de `annales`, limitado por ANNALES, `regimen.lines` e, em células, `rows`; Intimum sem linhas |
@@ -145,7 +147,8 @@ em Creta do mesmo instante têm o mesmo tom, o mesmo contraste, o mesmo registro
 sonoro. Na saída em células, a grade real normaliza as capacidades antes do cálculo: uma
 grade com menos linhas pode mudar o registro porque mostra um prefixo menor. O contraste
 é aplicado ao fundo antes das conversões de stilus; em Bicolor, o limiar de Bayer preserva
-o fundo preto de Quies.
+a ardósia preta e a encosta pontilhada de Quies. O teto 15−13 conserva o tom 2, primeiro
+tom que Bicolor admite acima do preto.
 
 ## 11. Proibições
 
