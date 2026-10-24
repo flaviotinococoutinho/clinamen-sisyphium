@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- sisyphium-owned -->
+<plist version="1.0"><dict>
+<key>Label</key><string>org.sisyphium.tabula</string>
+<key>ProgramArguments</key><array>
+@ARGUMENTS@
+</array><key>StartInterval</key>
+@INTERVAL@
+</dict></plist>

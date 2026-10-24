@@ -1,0 +1,8 @@
+# sisyphium-owned
+[Unit]
+Description=Sisyphium tabula interval
+[Timer]
+@INTERVAL@
+Unit=sisyphium.service
+[Install]
+WantedBy=timers.target
