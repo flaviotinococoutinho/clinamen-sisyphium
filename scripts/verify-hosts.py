@@ -71,7 +71,7 @@ def isolated_environment(base, home, commands):
                XDG_DATA_HOME=str(home / 'data'), XDG_RUNTIME_DIR=str(temporary),
                TMPDIR=str(temporary), TMP=str(temporary), TEMP=str(temporary),
                PATH=str(commands), HOST_ROOT=str(base), HOST_OWNER=base.name,
-               HOST_LOG=str(base / 'commands.jsonl'), HOST_PNG=PNG.hex(),
+               HOST_LOG=str(base / 'commands.jsonl'), HOST_BEFORE=str(base / 'before.json'), HOST_PNG=PNG.hex(),
                PYTHONDONTWRITEBYTECODE='1', LC_ALL='C',
                # PowerShell reads this before startup and may write the cache in
                # the background after module import. Keep it outside the HOME
@@ -85,9 +85,11 @@ def guard_environment(base, env, commands):
     require_guard(env['PATH'] == str(commands), 'PATH contains unreviewed directories')
     for key in ('HOME','USERPROFILE','LOCALAPPDATA','APPDATA','XDG_CONFIG_HOME','XDG_STATE_HOME',
                 'XDG_CACHE_HOME','XDG_DATA_HOME','XDG_RUNTIME_DIR','TMPDIR','TMP','TEMP','HOST_LOG',
-                'PSModuleAnalysisCachePath'):
+                'PSModuleAnalysisCachePath','HOST_BEFORE'):
         path = Path(env[key]).resolve()
         require_guard(root in path.parents, key + ' escapes test root')
+    require_guard(Path(env['HOST_BEFORE']).resolve() == root / 'before.json',
+                  'pre-product snapshot escaped dedicated path')
     cache = Path(env['PSModuleAnalysisCachePath']).resolve()
     require_guard(cache == root / 'tmp' / 'ModuleAnalysisCache', 'module cache escaped dedicated temporary path')
     require_guard(Path(env['HOME']).resolve() not in cache.parents, 'module cache overlaps observed HOME')
@@ -193,6 +195,49 @@ def entries(log):
     for record in records:
         require_guard(isinstance(record,dict) and record.get('owner') == owner, 'unowned command record')
     return [(record['name'],record['argv']) for record in records]
+
+
+def home_snapshot(home):
+    """Record relative names, object kinds and file hashes without file contents."""
+    snapshot = []
+    for path in sorted(home.rglob('*')):
+        require_guard(not path.is_symlink(), 'symbolic entry in observed HOME')
+        relative = path.relative_to(home).as_posix()
+        if path.is_dir():
+            snapshot.append({'path':relative,'kind':'directory','sha256':None})
+        else:
+            require_guard(path.is_file(), 'non-regular entry in observed HOME')
+            snapshot.append({'path':relative,'kind':'file','sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
+    return sorted(snapshot, key=lambda entry: entry['path'])
+
+
+def read_before_snapshot(base, env):
+    """Accept only the owner-tagged snapshot emitted before product invocation."""
+    path = Path(env['HOST_BEFORE'])
+    require_guard(path.resolve() == base.resolve() / 'before.json' and not path.is_symlink(),
+                  'invalid pre-product snapshot path')
+    document = json.loads(path.read_text(encoding='utf-8-sig'))
+    require_guard(isinstance(document,dict) and document.get('owner') == env['HOST_OWNER'],
+                  'unowned pre-product snapshot')
+    records = document.get('entries')
+    require_guard(isinstance(records,list), 'pre-product snapshot entries must be an array')
+    names = set()
+    for entry in records:
+        require_guard(isinstance(entry,dict) and set(entry) == {'path','kind','sha256'},
+                      'invalid pre-product snapshot record')
+        name = entry['path']
+        require_guard(isinstance(name,str) and name and not name.startswith('/') and
+                      '\\' not in name and ':' not in name and all(part not in ('','.','..') for part in name.split('/')),
+                      'snapshot name must be relative')
+        require_guard(name not in names, 'duplicate pre-product snapshot entry')
+        names.add(name)
+        require_guard(entry['kind'] in ('directory','file'), 'invalid snapshot object kind')
+        if entry['kind'] == 'directory':
+            require_guard(entry['sha256'] is None, 'directory snapshot must not have a file hash')
+        else:
+            require_guard(isinstance(entry['sha256'],str) and re.fullmatch('[0-9a-f]{64}',entry['sha256']) is not None,
+                          'invalid snapshot file hash')
+    return sorted(records, key=lambda entry: entry['path'])
 
 
 def verify_unix(system):
@@ -369,6 +414,33 @@ foreach ($node in $commands) {
     }
 }
 $values = [string[]](ConvertFrom-Json -InputObject (Get-Content -LiteralPath $env:HOST_ARGS -Raw))
+# The interpreter and command preflight run before the measured product boundary.
+# Keep the full before snapshot private; do not print file contents or argv.
+$homeRoot = [IO.Path]::GetFullPath($env:HOME).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+$beforeEntries = @()
+$pending = New-Object 'System.Collections.Generic.Stack[string]'
+$pending.Push($homeRoot)
+$hasher = [Security.Cryptography.SHA256]::Create()
+try {
+    while ($pending.Count -gt 0) {
+        foreach ($entryPath in [IO.Directory]::GetFileSystemEntries($pending.Pop())) {
+            $attributes = [IO.File]::GetAttributes($entryPath)
+            if ($attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'symbolic entry in observed HOME' }
+            $relative = $entryPath.Substring($homeRoot.Length).Replace('\','/')
+            if ($attributes -band [IO.FileAttributes]::Directory) {
+                $beforeEntries += [pscustomobject]@{path=$relative;kind='directory';sha256=$null}
+                $pending.Push($entryPath)
+            } else {
+                $stream = [IO.File]::OpenRead($entryPath)
+                try { $digest = [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-','').ToLowerInvariant() }
+                finally { $stream.Dispose() }
+                $beforeEntries += [pscustomobject]@{path=$relative;kind='file';sha256=$digest}
+            }
+        }
+    }
+} finally { $hasher.Dispose() }
+$beforeJson = ConvertTo-Json -InputObject @{owner=$env:HOST_OWNER;entries=@($beforeEntries)} -Compress -Depth 8
+[IO.File]::WriteAllText($env:HOST_BEFORE,$beforeJson)
 & $env:HOST_SCRIPT @values
 $code = $LASTEXITCODE
 if ('SisyphiumDesktop' -as [type]) {
@@ -418,12 +490,19 @@ def verify_windows():
             arguments.write_text(json.dumps(['-Action',action,'-Binary',str(binary),'-StateDir',str(state)] + list(extra)),encoding='utf-8-sig')
             return execute([shell,'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(wrapper)],actual_env,expected)
         output = run()
-        home_entries = sorted(path.relative_to(home).as_posix() for path in home.rglob('*'))
+        before = read_before_snapshot(base, env)
+        print('windows: pre-product HOME entries: ' + json.dumps([entry['path'] for entry in before], ensure_ascii=True))
+        after = home_snapshot(home)
         fake_calls = [name for name, _ in entries(log)]
         task_exists = task.exists()
-        # Report only relative fixture names and command names, never file contents
-        # or argv. Preserve all three strict conditions independently.
-        assert not home_entries, {'dry_run_home_entries': home_entries}
+        # Equality includes kinds and hashes: existing files cannot change, and no
+        # new entry is allowed. Diagnostics expose relative fixture names only.
+        assert before == after, {
+            'dry_run_home_before': [entry['path'] for entry in before],
+            'dry_run_home_after': [entry['path'] for entry in after],
+            'dry_run_home_changed': sorted({entry['path'] for entry in before + after
+                                           if entry not in before or entry not in after}),
+        }
         assert not fake_calls, {'dry_run_fake_calls': fake_calls}
         assert not task_exists, {'dry_run_task_exists': task_exists}
         assert '"127"' in output and '"800"' in output and '"600"' in output
