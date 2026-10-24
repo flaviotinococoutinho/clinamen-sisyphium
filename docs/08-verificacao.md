@@ -228,6 +228,13 @@ de executar o script. O teste recusa origens de comandos divergentes e mantém a
 inclusive em falhas. A configuração de diretório pessoal isolado, por si só, não isola
 uma sessão gráfica. O teste não constitui sandbox de sistema operacional.
 
+Em Windows, o wrapper registra a fotografia do diretório pessoal no mesmo processo,
+imediatamente antes de chamar o adaptador, após a preparação do interpretador. O JSON
+privado contém o identificador da execução, nomes relativos, tipos e hashes dos arquivos.
+Após `dry-run`, a árvore e os hashes DEVEM permanecer idênticos. A comparação recusa novas
+entradas, remoções e alterações; inicialização do runtime não é atribuída ao adaptador.
+O cache de módulos recebe caminho explícito na raiz temporária, fora do diretório observado.
+
 As provas cobrem `dry-run` sem escrita, medidas e fallbacks, argumentos literais, limites,
 publicação anterior à aplicação simulada, falhas do binário, ausência de dependência e
 escopo das agendas. `--platform unix` executa os dois adaptadores shell com substitutos;
