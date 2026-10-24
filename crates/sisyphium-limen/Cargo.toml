@@ -1,0 +1,36 @@
+[package]
+name = "sisyphium-limen"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+sisyphium = { path = "../sisyphium" }
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
+pedantic = { level = "warn", priority = -1 }
+float_arithmetic = "deny"
+float_cmp = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+# Truncating and sign-changing casts are the bit-field laws themselves; each site is documented.
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
