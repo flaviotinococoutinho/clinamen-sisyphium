@@ -274,9 +274,10 @@ pub const fn warp_factor(r2: i64, kappa: i8) -> i64 {
     }
 }
 
-/// Side of the block that covers a projected point (REQ-L2-06): under expansion
-/// 1 + ⌈3·`kappa`·r2/2²³⌉, the ceiling of the radial derivative 1 + 3κr² of the map, at most 8,
-/// with `r2` in Q16.16 clamped as in [`warp_factor`]; one pixel without expansion.
+/// Integer upper estimate of radial expansion: 1 + ⌈3·`kappa`·r2/2²³⌉, at most 8, from
+/// the radial derivative 1 + 3κr² of [`warp_factor`], with `r2` in Q16.16 clamped to
+/// [`WARP_R2_MAX`]; one without expansion. The raster coverage of REQ-L2-06 is instead
+/// determined by adjacent projected coordinates in [`crate::signum::raster::Pictor`].
 #[must_use]
 pub const fn warp_block(r2: i64, kappa: i8) -> i64 {
     if kappa <= 0 {
