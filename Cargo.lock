@@ -19,3 +19,19 @@ version = "0.1.0"
 dependencies = [
  "sisyphium",
 ]
+
+[[package]]
+name = "sisyphium-tabula"
+version = "0.1.0"
+dependencies = [
+ "sisyphium",
+ "sisyphium-hospes",
+]
+
+[[package]]
+name = "sisyphium-textus"
+version = "0.1.0"
+dependencies = [
+ "sisyphium",
+ "sisyphium-hospes",
+]
