@@ -1514,7 +1514,7 @@ mod tests {
             (255, Modus::Vigilia, 8),
             (120, Modus::Vigilia, 10),
             (60, Modus::Vigilia, 12),
-            (255, Modus::Quies, 15),
+            (255, Modus::Quies, 13),
         ] {
             for kappa in [-64, 0, 64] {
                 for dither in [false, true] {

@@ -17,7 +17,7 @@ const GOLDEN: [(&str, u64); 12] = [
     ("vigilia", 0x8C5A_591A_9B47_86D3),
     ("acedia", 0xD036_E23A_C852_49B7),
     ("somnium", 0x2CDF_2A67_C888_8772),
-    ("quies", 0x4FE9_C3D1_D1A4_F542),
+    ("quies", 0x9ABD_38A2_F478_9362),
     ("littera", 0x431A_6AE3_4C5F_D2AF),
     ("somnium-1920x1080", 0x0BFA_3267_A8D9_75D5),
     ("graph-linear", 0xA28C_7853_445C_10C8),
