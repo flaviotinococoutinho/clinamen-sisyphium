@@ -830,12 +830,15 @@ mod tests {
             stilus: Stilus::Creta,
             strata: 4,
             tick_ms: 42,
-            interval_ms: 125,
+            interval_ms: 60_000,
             layers: CAELUM | MARGO | ANNALES | HEXAGRAMMA | PUNCTA,
             lines: 6,
         };
         assert!(cost(&attainable, &f) <= budget(&f, 255));
-        assert_eq!(value(&attainable, &w, &f, 255), 43);
+        assert_eq!(value(&attainable, &w, &f, 255), 39);
+        assert_eq!((cost(&attainable, &f), cost(&r, &f)), (1, 1));
+        assert!(score(&attainable, &w, &f, 255) > score(&r, &w, &f, 255));
+        assert!(!satisfices(value(&r, &w, &f, 255), value_max(&w, &f, 255)));
         assert!(satisfices(
             value(&attainable, &w, &f, 255),
             value_max(&w, &f, 255)
