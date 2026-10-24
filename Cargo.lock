@@ -5,3 +5,17 @@ version = 4
 [[package]]
 name = "sisyphium"
 version = "0.1.0"
+
+[[package]]
+name = "sisyphium-hospes"
+version = "0.1.0"
+dependencies = [
+ "sisyphium",
+]
+
+[[package]]
+name = "sisyphium-limen"
+version = "0.1.0"
+dependencies = [
+ "sisyphium",
+]
