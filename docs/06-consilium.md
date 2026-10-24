@@ -105,8 +105,9 @@ valor semiótico, orçamento, aspiração, aceitação, forçamentos e fórmula 
 A aspiração de 80% é alvo e critério de parada; as 64 propostas NÃO garantem encontrá-la,
 mesmo quando existe um regimen admissível que a satisfaz. O resultado retém o maior escore
 encontrado pela busca descrita em §5. Com os custos desta tabela, genesis(1), 320×180 e
-energia 255 produzem valor 30 de máximo 45; um regimen admissível com intervalo 125 ms
-atinge 43. A regressão independente conserva ambos os resultados.
+energia 255 produzem valor 30 de máximo 45; um regimen admissível com intervalo 60 000 ms
+atinge 39. Ambos custam uma unidade por segundo; o candidato tem escore 311, superior ao
+escore 239 do resultado. A regressão independente conserva ambos os resultados.
 
 ## 4. Valor semiótico
 
@@ -135,8 +136,9 @@ de valor.
 estratos; todas as camadas de valor positivo com seis linhas; a cadência permitida de maior
 valor; o stilus permitido de maior valor. O orçamento não entra nesse máximo. O nível de
 aspiração é 80 % desse valor (Simon, 1955), comparado por `5 · value ≥ 4 · value_max`, sem
-arredondamento. Se o orçamento impedir esse nível, a busca devolve o maior escore encontrado em
-até 64 propostas.
+arredondamento. A busca para quando o melhor regimen encontrado atinge esse nível ou quando
+completa 64 propostas. O resultado retém o maior escore encontrado. Um candidato admissível
+que atinge a aspiração PODE existir sem ser visitado pelas 64 propostas.
 
 ## 5. Busca
 
