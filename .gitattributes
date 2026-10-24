@@ -1,0 +1,2 @@
+# Reviewed host hashes must cover the same bytes on every native checkout.
+hosts/** text eol=lf
