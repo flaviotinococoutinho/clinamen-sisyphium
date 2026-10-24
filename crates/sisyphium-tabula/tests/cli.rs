@@ -419,3 +419,128 @@ fn scarce_energy_reselects_quies_after_public_advance() {
         .collect();
     assert_eq!(&output[15..], rgb);
 }
+
+#[test]
+fn native_name_aliases_preserve_state_and_lock_namespace() {
+    let dir = Locus::new();
+    fs::write(dir.0.join("caseprobe"), b"probe").unwrap();
+    let case_insensitive = dir.0.join("CASEPROBE").exists();
+    fs::remove_file(dir.0.join("caseprobe")).unwrap();
+    if !case_insensitive {
+        return;
+    }
+    for (state_name, output_name, existing_state, existing_output) in [
+        ("state", "STATE", true, false),
+        ("state", "STATE.LOCK", true, false),
+        ("state", "STATE", false, false),
+        ("state", "STATE.LOCK", false, false),
+        ("state", "STATE", false, true),
+    ] {
+        let case = Locus::new();
+        let state = case.0.join(state_name);
+        let output = case.0.join(output_name);
+        let original = Mundus::genesis(1).format();
+        if existing_state {
+            fs::write(&state, original).unwrap();
+        }
+        if existing_output {
+            fs::write(&output, original).unwrap();
+        }
+        let mut options = args(&[
+            "--epoch",
+            "1782054000000",
+            "--ticks",
+            "1",
+            "--width",
+            "1",
+            "--height",
+            "1",
+            "--state",
+        ]);
+        options.extend([
+            state.clone().into_os_string(),
+            OsString::from("--output"),
+            output.into_os_string(),
+        ]);
+        assert_eq!(run(&options, &mut Vec::new()).unwrap_err().exit_code(), 1);
+        if existing_state || existing_output {
+            assert_eq!(fs::read(&state).unwrap(), original);
+        } else {
+            assert!(!state.exists());
+        }
+        assert!(!case.0.join("state.lock").exists());
+        assert_eq!(
+            fs::read_dir(&case.0).unwrap().count(),
+            usize::from(existing_state || existing_output)
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_hardlink_aliases_preserve_both_names() {
+    let dir = Locus::new();
+    let state = dir.0.join("state");
+    let output = dir.0.join("image");
+    let original = Mundus::genesis(1).format();
+    fs::write(&state, original).unwrap();
+    fs::hard_link(&state, &output).unwrap();
+    let options = vec![
+        OsString::from("--state"),
+        state.clone().into_os_string(),
+        OsString::from("--output"),
+        output.clone().into_os_string(),
+    ];
+    assert_eq!(run(&options, &mut Vec::new()).unwrap_err().exit_code(), 1);
+    assert_eq!(fs::read(&state).unwrap(), original);
+    assert_eq!(fs::read(&output).unwrap(), original);
+    assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 2);
+}
+
+#[test]
+fn native_unicode_equivalence_is_checked_for_absent_destinations() {
+    let dir = Locus::new();
+    let composed = "caf\u{e9}";
+    let decomposed = "cafe\u{301}";
+    fs::write(dir.0.join(composed), b"probe").unwrap();
+    let equivalent = dir.0.join(decomposed).exists();
+    fs::remove_file(dir.0.join(composed)).unwrap();
+    if !equivalent {
+        return;
+    }
+    for lock in [false, true] {
+        let state = dir.0.join(composed);
+        let output = dir.0.join(if lock {
+            format!("{decomposed}.lock")
+        } else {
+            decomposed.to_owned()
+        });
+        let options = vec![
+            OsString::from("--state"),
+            state.into_os_string(),
+            OsString::from("--output"),
+            output.into_os_string(),
+        ];
+        assert_eq!(run(&options, &mut Vec::new()).unwrap_err().exit_code(), 1);
+        assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 0);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn probe_error_cleans_only_owned_files_and_preserves_state() {
+    let dir = Locus::new();
+    // Valid final name, but its additional native probe prefix exceeds NAME_MAX.
+    let state = dir.0.join("s".repeat(250));
+    let original = Mundus::genesis(1).format();
+    fs::write(&state, original).unwrap();
+    let options = vec![
+        OsString::from("--state"),
+        state.clone().into_os_string(),
+        OsString::from("--output"),
+        dir.0.join("image").into_os_string(),
+    ];
+    assert_eq!(run(&options, &mut Vec::new()).unwrap_err().exit_code(), 1);
+    assert_eq!(fs::read(&state).unwrap(), original);
+    assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+}

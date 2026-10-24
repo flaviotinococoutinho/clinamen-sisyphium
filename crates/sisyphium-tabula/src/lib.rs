@@ -1,6 +1,7 @@
 //! Static image host consuming the public world laws (REQ-H-02, REQ-H-06).
 #![forbid(unsafe_code)]
 pub mod imago;
+mod via;
 
 use imago::{Forma, write_image};
 use sisyphium::{hospes::Tabula, mundus::Mundus};
@@ -181,7 +182,7 @@ fn validate_destinations(output: Option<&Path>, state: Option<&Path>) -> io::Res
     if let (Some(output), Some(state)) = (output, state) {
         let mut lock = state.as_os_str().to_os_string();
         lock.push(".lock");
-        if output == state || output == Path::new(&lock) {
+        if via::aliases(&output, &state)? || via::aliases(&output, Path::new(&lock))? {
             return Err(invalid("image aliases state or state lock"));
         }
     }
