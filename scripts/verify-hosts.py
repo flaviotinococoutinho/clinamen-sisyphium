@@ -360,7 +360,7 @@ foreach ($node in $commands) {
         throw "unreviewed external command: $name"
     }
 }
-$values = @(Get-Content -LiteralPath $env:HOST_ARGS -Raw | ConvertFrom-Json)
+$values = [string[]](ConvertFrom-Json -InputObject (Get-Content -LiteralPath $env:HOST_ARGS -Raw))
 & $env:HOST_SCRIPT @values
 $code = $LASTEXITCODE
 if ('SisyphiumDesktop' -as [type]) {
