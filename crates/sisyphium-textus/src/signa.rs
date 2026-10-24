@@ -216,7 +216,7 @@ mod native {
         let mut mode = 0;
         // SAFETY: STD_OUTPUT_HANDLE is -11 as DWORD; the returned opaque handle is
         // passed unchanged, and mode points to a live writable u32 for the call.
-        unsafe { GetConsoleMode(GetStdHandle((-11_i32) as u32), &mut mode) != 0 && mode & 4 != 0 }
+        unsafe { GetConsoleMode(GetStdHandle((-11_i32) as u32), &raw mut mode) != 0 && mode & 4 != 0 }
     }
 }
 
