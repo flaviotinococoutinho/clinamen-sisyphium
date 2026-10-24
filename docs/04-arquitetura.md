@@ -374,7 +374,7 @@ anúncios dos seus ticks. As razões da ordem:
 
 | Hospedeiro | Mede | Exibe | Persistência |
 | --- | --- | --- | --- |
-| `tabula` | argumentos: `--epoch`, `--ticks`, `--energy`, `--seism`, `--lingua`, `--width`, `--height`, `--stilus`, `--state`; mede o tempo decorrido pelo `mtime` do próprio arquivo de estado e chama `advance` (REQ-H-06); `--epoch` sintético exige `--ticks` | arquivo PPM ou PNG | arquivo de exatamente 32 dígitos; `mtime` como medida externa |
+| `tabula` | argumentos comuns de §3.4, `--width`, `--height`, `--output` e `--format`; mede o tempo decorrido pelo `mtime` do próprio arquivo de estado e chama `advance` (REQ-H-06); `--epoch` sintético exige `--ticks` | PPM ou PNG em arquivo ou stdout | arquivo opcional de exatamente 32 dígitos; `mtime` como medida externa |
 | `textus` | tamanho do terminal; relógio; energia por argumento ou leitura do sistema quando disponível | sequências ANSI; Littera nativo ou meio-blocos `▀▄` em 16 tons | arquivo de 32 dígitos |
 | `limen` | nada | nada | nada; o chamador persiste |
 | `hosts/macos` | `pmset` (energia), `sw_vers` (versão), tamanho da tela | `osascript` define a imagem da mesa; `launchd` agenda | arquivo em `~/Library/Application Support/sisyphium/` |
@@ -384,3 +384,23 @@ anúncios dos seus ticks. As razões da ordem:
 
 A sondagem de versão e de API em cada hospedeiro produz apenas `Facultates`; o núcleo não conhece
 nomes de sistemas.
+
+`tabula` declara `max_hz=0`, seleciona o regimen antes de `advance` e usa seu `tick_ms`
+energético no avanço. A seleção posterior determina o quadro e a paleta. A imagem usa apenas
+os quatro bits de luminância de cada pixel. PPM P6 expande uma linha por vez; PNG usa paleta
+com 16 entradas, profundidade 8, filtro 0 e blocos DEFLATE sem compressão de até 65 535 bytes.
+Os IDATs contíguos transportam um único fluxo zlib com Adler-32; cada chunk possui CRC-32.
+
+A saída padrão é PNG em stdout. `--format ppm` seleciona PPM explicitamente; a extensão do
+caminho não seleciona formato. O arquivo de imagem usa temporário exclusivo e substituição
+atômica de §3.3. O caminho de saída NÃO DEVE coincidir com o estado ou com seu lock após
+resolver o diretório pai. Componentes finais symlink são recusados. A falha de imagem impede
+a gravação do estado. A falha posterior de estado PODE coexistir com a imagem publicada e
+NÃO DEVE causar rollback da imagem. Diagnósticos usam stderr.
+
+Exemplo determinístico, sem persistência nem aplicação ao ambiente:
+
+```sh
+cargo run -p sisyphium-tabula -- --seed 1 --epoch 1782054000000 --ticks 4096 --output quadro.png
+cargo run -p sisyphium-tabula -- --seed 1 --epoch 1782054000000 --ticks 4096 --format ppm --output quadro.ppm
+```
