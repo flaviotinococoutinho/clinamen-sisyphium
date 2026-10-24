@@ -142,3 +142,46 @@ Entradas por nível de origem. Datas de primeira publicação.
 
 - Dynamix; Sierra On-Line. Protetor de tela com um náufrago numa ilha (1992). Referência de ambição;
   nenhum ativo, nome ou mecânica reutilizados; direitos reservados pelos sucessores.
+
+## Integração com o desktop
+
+- Apple. _Creating Launch Daemons and Agents_. `ProgramArguments`, `StartInterval` e agentes
+  da sessão de usuário. Consulta em 24/10/2026.
+  <https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html>.
+- Apple. _pmset(1)_. Sondagem de alimentação e bateria. Consulta em 24/10/2026.
+  <https://github.com/apple-oss-distributions/PowerManagement/blob/main/pmset/pmset.1>.
+- Apple. _osascript(1)_, _system_profiler(8)_, _sw_vers(1)_ e _launchctl(1)_. Manuais
+  distribuídos com macOS; passagem de argv, relatórios de hardware, versão e domínio `gui`.
+  Consulta local em 24/10/2026 por `man`.
+- Linux. _Power supply class_. Atributos `status` e `capacity`, unidades e ausência de medidas.
+  Consulta em 24/10/2026. <https://docs.kernel.org/power/power_supply_class.html>.
+- X.Org. _xrandr(1)_, arquivo X11R7.5. Saídas conectadas e resolução atual.
+  Consulta em 24/10/2026. <https://xorg.freedesktop.org/archive/X11R7.5/doc/man/man1/xrandr.1.html>.
+- Sway. _swaymsg(1)_. Consulta de saídas com apresentação textual explícita.
+  Consulta em 24/10/2026. <https://github.com/swaywm/sway/blob/master/swaymsg/swaymsg.1.scd>.
+- feh. _feh(1)_. Aplicação de fundo e opção `--no-fehbg`. Consulta em 24/10/2026.
+  <https://github.com/derf/feh/blob/master/man/feh.pre>.
+- swww. _swww-img(1)_. Imagem e transição `none`. Consulta em 24/10/2026.
+  <https://github.com/LGFae/swww/blob/main/doc/swww-img.1.scd>.
+- systemd. _systemd.timer(5)_. Temporizadores monotônicos, `OnUnitInactiveSec` e serviço ativo.
+  Consulta em 24/10/2026. <https://www.freedesktop.org/software/systemd/man/latest/systemd.timer.html>.
+- systemd. _systemd.service(5)_. `Type=oneshot`, argumentos de `ExecStart` e expansão.
+  Consulta em 24/10/2026. <https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html>.
+- Microsoft. _Get-CimInstance_, _Win32_Battery_ e _Win32_VideoController_. Sondagem local de
+  bateria e resolução. Consulta em 24/10/2026.
+  <https://learn.microsoft.com/en-us/powershell/module/cimcmdlets/get-ciminstance>,
+  <https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-battery>,
+  <https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-videocontroller>.
+- Microsoft. _SystemParametersInfoW_. `SPI_SETDESKWALLPAPER`, atualização de perfil,
+  notificação e valor de retorno. Consulta em 24/10/2026.
+  <https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow>.
+- Microsoft. _Task Scheduler: MultipleInstancesPolicy_ e _Interval_. `IgnoreNew` e faixa
+  de repetição de 1 minuto a 31 dias. Consulta em 24/10/2026.
+  <https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-multipleinstancespolicy-settingstype-element>,
+  <https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-interval-repetitiontype-element>.
+- Microsoft. _Register-ScheduledTask_. Registro XML no contexto do usuário.
+  Consulta em 24/10/2026.
+  <https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/register-scheduledtask>.
+- Microsoft. _Parsing C command-line arguments_. Aspas e barras na linha de comando Windows.
+  Consulta em 24/10/2026.
+  <https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments>.

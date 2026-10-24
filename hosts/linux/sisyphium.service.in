@@ -1,0 +1,6 @@
+# sisyphium-owned
+[Unit]
+Description=Sisyphium tabula
+[Service]
+Type=oneshot
+@ARGUMENTS@
