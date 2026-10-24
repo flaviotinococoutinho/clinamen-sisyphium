@@ -22,7 +22,7 @@ pub const ANNALES: [[[&str; 5]; 3]; 8] = [
         [
             "A FOLHA FICA INTEIRA NA PEDRA.",
             "UMA FORMIGA LEVA A FOLHA AO NINHO.",
-            "O SOLO DE UMA CHINAMPA RESISTE.",
+            "LAVRADOR DE TENOCHTITLAN FIRMA O SOLO.",
             "O MILHO NUTRE A CIDADE DO LAGO UM ANO.",
             "A ORDEM DAS COISAS FICA IMÓVEL.",
         ],
@@ -152,7 +152,7 @@ pub const ANNALES: [[[&str; 5]; 3]; 8] = [
         [
             "UM GRITO DESCE AO VALE.",
             "UMA CABRA FOGE E PERDE O SINO.",
-            "UM MENINO PASTOR ACHA UMA MOEDA ROMANA.",
+            "CONSTANTINOPLA: PASTOR MIRIM ACHA MOEDA.",
             "A MOEDA PAGA UM LUGAR NUMA ESCOLA.",
             "UM CÓDIGO DE LEIS SOBREVIVE AO IMPÉRIO.",
         ],

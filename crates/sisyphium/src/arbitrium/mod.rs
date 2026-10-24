@@ -1167,6 +1167,53 @@ mod tests {
         }
     }
 
+    /// Each fully revealed branch names its historical place from the 24-place index in
+    /// `docs/07-narrativa.md` §4, using the spelling of its language and complete name tokens.
+    #[test]
+    fn annales_name_historical_places() {
+        let places_en = [
+            ["ATHENS", "CHANG'AN", "TENOCHTITLAN"],
+            ["TROY", "PERSEPOLIS", "CROTON"],
+            ["PATALIPUTRA", "BENIN", "TIMBUKTU"],
+            ["CUZCO", "ALEXANDRIA", "EDO"],
+            ["URUK", "CARTHAGE", "KYOTO"],
+            ["NALANDA", "AXUM", "RAPA NUI"],
+            ["CONSTANTINOPLE", "BAGHDAD", "TEOTIHUACAN"],
+            ["CÓRDOBA", "TONGA", "ANGKOR"],
+        ];
+        let places_pt = [
+            ["ATENAS", "CHANG'AN", "TENOCHTITLAN"],
+            ["TROIA", "PERSÉPOLIS", "CROTONA"],
+            ["PATALIPUTRA", "BENIM", "TIMBUKTU"],
+            ["CUZCO", "ALEXANDRIA", "EDO"],
+            ["URUK", "CARTAGO", "KYOTO"],
+            ["NALANDA", "AXUM", "RAPA NUI"],
+            ["CONSTANTINOPLA", "BAGDÁ", "TEOTIHUACAN"],
+            ["CÓRDOBA", "TONGA", "ANGKOR"],
+        ];
+        let mut missing = Vec::new();
+        for (lingua, places) in [(Lingua::En, places_en), (Lingua::Pt, places_pt)] {
+            for (eventus, row) in (0u8..).zip(places) {
+                for (ramus, place) in (0u8..).zip(row) {
+                    let text = annales(memory(eventus, ramus, 480), lingua, false);
+                    assert_eq!(text.count, 5, "{lingua:?} {eventus}.{ramus}");
+                    let name: Vec<_> = place.split_whitespace().collect();
+                    let named = text.lines[..usize::from(text.count)].iter().any(|line| {
+                        let words: Vec<_> = line
+                            .split_whitespace()
+                            .map(|word| word.trim_matches(|c: char| !c.is_alphabetic()))
+                            .collect();
+                        words.windows(name.len()).any(|window| window == name)
+                    });
+                    if !named {
+                        missing.push((lingua, eventus, ramus, place));
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "unnamed historical places: {missing:?}");
+    }
+
     /// The first forbidden personal or possessive token of a line (`docs/07-narrativa.md` §3).
     fn first_pronoun<'a>(text: &'a str, banned: &[&str]) -> Option<&'a str> {
         const MARKS: [char; 9] = ['.', ',', ';', ':', '!', '?', '"', '(', ')'];

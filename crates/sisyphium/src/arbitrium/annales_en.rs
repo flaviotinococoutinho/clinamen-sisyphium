@@ -22,7 +22,7 @@ pub const ANNALES: [[[&str; 5]; 3]; 8] = [
         [
             "THE LEAF STAYS WHOLE ON THE STONE.",
             "AN ANT CARRIES THE LEAF TO THE NEST.",
-            "THE SOIL OF A CHINAMPA HOLDS.",
+            "A FARMER IN TENOCHTITLAN SAVES THE SOIL.",
             "MAIZE FEEDS A LAKE CITY ONE MORE YEAR.",
             "THE ORDER OF THINGS STAYS UNMOVED.",
         ],
@@ -152,7 +152,7 @@ pub const ANNALES: [[[&str; 5]; 3]; 8] = [
         [
             "A SHOUT GOES DOWN INTO THE VALLEY.",
             "A GOAT STARTLES AND DROPS A BELL.",
-            "A SHEPHERD'S BOY FINDS A ROMAN COIN.",
+            "CONSTANTINOPLE: A HERDBOY FINDS A COIN.",
             "THE COIN BUYS A PLACE IN A SCHOOL.",
             "A CODE OF LAWS OUTLASTS THE EMPIRE.",
         ],
