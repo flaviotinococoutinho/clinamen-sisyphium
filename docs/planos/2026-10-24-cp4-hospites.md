@@ -58,7 +58,7 @@ Cada tarefa termina com testes, revisão de requisitos, revisão técnica e comm
 
 **CLI comum.** `--epoch <i64-ms>` exige `--ticks <0..65536>`; ticks explícitos têm precedência
 sobre mtime. Sem epoch, relógio do sistema. `--energy <u8>` padrão255; `--seism <u8>` padrão0;
-`--lingua en|pt` padrãoen; `--seed <u64-decimal>` padrão relógio convertido a u64 por bytes;
+`--lingua en|pt` padrãoen; `--seed <u64-decimal>` padrão época efetiva convertida a u64 por bytes (época sintética conserva repetibilidade);
 `--state <path>` sem padrão (não persiste quando omitido). Seed com estado já existente falha.
 `--compute <u8>` padrão255; `--color-bits 1|4|8|24` padrão8; `--tz-offset <-1439..1439>`
 padrão−180; `--australis true|false` padrãotrue. Flags repetidas/desconhecidas falham.
@@ -114,9 +114,9 @@ Em docs04 registrar o crate interno e contratos acima; REQ-D-02 distingue conte�
 - `Error::{Usus(io::Error),Operatio(io::Error)}` com Display, std::error::Error e `exit_code(&self)->u8` (2 ou 1). Parsers continuam io::Result; os executáveis convertem explicitamente na fronteira de parsing.
 - `tempus::epoch_ms(SystemTime)->Option<i64>` e
   `tempus::elapsed_ticks(now:i64,mtime:Option<i64>,tick_ms:u32)->u32`.
-- `argumenta::Argumenta::parse(args:&[OsString],allowed:&[(&str,bool)])->Result<Self,Error>`;
-  `take(&mut self,name:&str)->Option<OsString>`; `finish(self)->Result<(),Error>`;
-  `Communia::parse(&mut Argumenta)->Result<Self,Error>`;
+- `argumenta::Argumenta::parse(args:&[OsString],allowed:&[(&str,bool)])->io::Result<Self>`;
+  `take(&mut self,name:&str)->Option<OsString>`; `finish(self)->io::Result<()>`;
+  `Communia::parse(&mut Argumenta)->io::Result<Self>`;
   bool em allowed indica argumento com valor; flag sem valor produz OsString vazia em take.
   `Communia::facultates(width:u16,height:u16,cells:bool,max_hz:u8)->Facultates`;
   `Communia::indicia(epoch_ms:i64)->Indicia`.
@@ -232,8 +232,7 @@ docs04/08 são atualizados pelo controlador com nota da tarefa, sem edição con
   instalação sem alvo admitido falha antes de efeitos em execução contínua.
 - [ ] Executar `cargo test -p sisyphium-textus`; observar falhas esperadas.
 - [ ] Implementar sondagem sem dependência: Unix `stty size` com stdin herdado e erro silencioso;
-  Windows PowerShell `[Console]::WindowWidth/WindowHeight`; processos só na inicialização e
-  a cada apresentação, nunca a cada tick. Testar ausência/erro com executável falso.
+  Windows PowerShell `[Console]::WindowWidth/WindowHeight`; processos só na inicialização e em apresentações, no máximo uma sondagem por segundo; dimensões explícitas completas dispensam sondagem. Nunca consultar um processo a cada tick ou quadro de 24 Hz. Testar ausência/erro com executável falso.
 - [ ] Implementar loop com Instant e thread::sleep até próximo deadline; primeira apresentação
   imediata após catch-up inicial com ticks explícitos ou mtime segundo T2; evolução seguinte
   por tick. Reavaliar cache antes/depois de cada evolução; marcos
