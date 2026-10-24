@@ -240,8 +240,26 @@ fn dump_golden_ppm() -> std::io::Result<()> {
     use std::io::Write;
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("aurea-cp3");
     std::fs::create_dir_all(&dir)?;
+    let mut manifest = Vec::new();
     for scenario in golden_scenarios() {
+        std::fs::write(
+            dir.join(format!("{}.world", scenario.name)),
+            scenario.world.format(),
+        )?;
         let (pixels, palette) = capture(scenario);
+        std::fs::write(dir.join(format!("{}.raster", scenario.name)), &pixels)?;
+        std::fs::write(
+            dir.join(format!("{}.palette", scenario.name)),
+            palette.into_iter().flatten().collect::<Vec<_>>(),
+        )?;
+        writeln!(
+            manifest,
+            "{}\t{}\t{}\t{:016x}",
+            scenario.name,
+            scenario.width,
+            scenario.height,
+            fnv1a(&pixels)
+        )?;
         let mut bytes = format!("P6\n{} {}\n255\n", scenario.width, scenario.height).into_bytes();
         for &pixel in &pixels {
             bytes.extend_from_slice(&palette[usize::from(lum_of(pixel))]);
@@ -255,6 +273,7 @@ fn dump_golden_ppm() -> std::io::Result<()> {
             path.display()
         );
     }
+    std::fs::write(dir.join("manifest.tsv"), manifest)?;
     Ok(())
 }
 

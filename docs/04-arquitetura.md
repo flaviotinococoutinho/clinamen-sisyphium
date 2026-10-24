@@ -219,8 +219,9 @@ operacionais em `Error::Operatio` (saída 1), pela origem e não por `ErrorKind`
 `tabula` recebe `--width` e `--height` em 1..=65 535, padrão 320×180, respeitando
 `MAX_PIXELS`; `--output` padrão `-`; `--format png|ppm` padrão `png`, sem inferência por
 extensão. A apresentação estática declara `max_hz = 0`; `--max-hz` não se aplica.
-`--stilus creta|musivum|littera|bicolor` exige `--metire`; a medição recusa `--state`,
-`--output` e `--ticks` e não publica imagem. Sem stilus explícito, mede as quatro famílias.
+`--stilus creta|musivum|littera|bicolor` exige `--metire`; a medição usa a matriz fixa de
+`08-verificacao.md` e recusa todas as opções de execução da experiência, inclusive `--state`,
+`--output` e `--ticks`. Não publica imagem. Sem stilus explícito, mede as quatro famílias.
 
 `textus` recebe `--cols` e `--rows` em 1..=65 535, `--cells true|false` padrão `true`,
 `--frames` em 1..=`u32::MAX`, `--max-hz` em 0..=24 padrão 24 e `--plain`. Sem `--frames`,
@@ -310,9 +311,41 @@ void     sisyphium_palette(uint64_t verbum, uint64_t memoria, const SyFacultates
                             const SyIndicia *i, uint8_t out[48]);
 ```
 
-`SyFacultates`, `SyIndicia` e `SyRegimen` são `#[repr(C)]` com os mesmos campos de §4;
-`touch` vira `touch_x`, `touch_y` e `has_touch`. A exportação wasm usa as mesmas funções com um
-buffer de pixels estático dimensionado pelo hospedeiro.
+O header público é `crates/sisyphium-limen/include/sisyphium.h`. As três representações C
+usam inteiros de largura fixa, reservas nomeadas e `#[repr(C)]`; não se expõe o leiaute das
+estruturas Rust de §4. Os offsets abaixo são em bytes.
+
+| Estrutura | Campos na ordem | Tamanho e alinhamento nos alvos de 64 bits do CI |
+| --- | --- | --- |
+| `SyFacultates` | `width:u16@0`, `height:u16@2`, `color_bits:u8@4`, `max_hz:u8@5`, `touch:u8@6`, `motion:u8@7`, `occlusion:u8@8`, `persistence:u8@9`, `cells:u8@10`, `australis:u8@11`, `tz_offset_min:i16@12`, `lingua:u8@14`, `compute:u8@15` | 16 e 2 |
+| `SyIndicia` | `epoch_ms:i64@0`, `energy:u8@8`, `seism:u8@9`, `automatism:u8@10`, `reservatum0:u8@11`, `idle_s:u32@12`, `returned_ms:u32@16`, `occluded:u8@20`, `leaving:u8@21`, `touch_x:u8@22`, `touch_y:u8@23`, `has_touch:u8@24`, `offset:u8@25`, `tilt:i8@26`, `reservata:[u8;5]@27` | 32 e 8 |
+| `SyRegimen` | `stilus:u8@0`, `strata:u8@1`, `reservata0:[u8;2]@2`, `tick_ms:u32@4`, `interval_ms:u32@8`, `layers:u8@12`, `lines:u8@13`, `reservata1:[u8;2]@14` | 16 e 4 |
+
+O alinhamento é o nativo do alvo. Outros ABIs, especialmente de 32 bits, DEVEM comparar
+header e Rust pelo compilador; não impor alinhamento 8 por empacotamento manual. Flags
+aceitam somente 0 ou 1; `lingua` aceita 0 (`En`) ou 1 (`Pt`); `stilus` aceita 0..=3;
+`color_bits` aceita 1, 4, 8 ou 24. Dimensões são positivas, `strata` pertence a 1..=4,
+`lines` a 0..=6 e todos os bytes reservados DEVEM ser zero. `tick_ms` aceita 42, 125,
+250 ou 60 000; `interval_ms` pertence a `INTERVALS` e não pode ser menor que `tick_ms`.
+O fuso ABI aceita todo `i16`, como o núcleo; a faixa da CLI é uma política separada.
+
+Ponteiros não nulos DEVEM endereçar memória viva, alinhada e de extensão suficiente durante
+toda a chamada. Entradas DEVEM estar inicializadas; saídas DEVEM ser graváveis e não se
+sobrepor entre si ou às entradas. Não pode haver acesso concorrente conflitante. A biblioteca
+não retém nem libera memória do chamador. Checar null não valida endereços arbitrários.
+
+Parâmetro inválido produz no-op nas funções void e retorno 0 sem escrita em `parse`, `step`
+e `advance`. O 0 de `step` e `advance` também pode significar anúncio vazio válido; não é
+um diagnóstico inequívoco. `advance` recusa mais de 65 536 ticks. `format` escreve exatamente
+32 bytes, sem terminador; `palette` escreve exatamente 48 bytes RGB. `render` exige dimensões
+iguais às de `SyFacultates` e buffer de pelo menos `width*height` bytes, contido em uma única
+alocação. A multiplicação e o limite `isize::MAX` são verificados antes de formar a fatia.
+O buffer de pixels pode estar não inicializado: o limiar o inicializa antes de criar a fatia.
+
+As conversões validam cópias das entradas antes de alterar saídas. Somente as funções de
+fronteira admitem `unsafe`, conforme [ADR 0008](adr/0008-fronteiras-nativas-dos-hospedeiros.md).
+O núcleo mantém `unsafe_code = forbid`. A exportação wasm e seu hospedeiro pertencem ao
+checkpoint seguinte; a execução C nativa não constitui prova desse alvo.
 
 ## 7. Determinismo e totalidade
 
@@ -374,10 +407,10 @@ anúncios dos seus ticks. As razões da ordem:
 
 | Hospedeiro | Mede | Exibe | Persistência |
 | --- | --- | --- | --- |
-| `tabula` | argumentos comuns de §3.4, `--width`, `--height`, `--output` e `--format`; mede o tempo decorrido pelo `mtime` do próprio arquivo de estado e chama `advance` (REQ-H-06); `--epoch` sintético exige `--ticks` | PPM ou PNG em arquivo ou stdout | arquivo opcional de exatamente 32 dígitos; `mtime` como medida externa |
-| `textus` | tamanho do terminal; relógio; energia por argumento ou leitura do sistema quando disponível | sequências ANSI; Littera nativo ou meio-blocos `▀▄` em 16 tons | arquivo de 32 dígitos |
+| `tabula` | argumentos comuns de §4.2, `--width`, `--height`, `--output` e `--format`; mede o tempo decorrido pelo `mtime` do próprio arquivo de estado e chama `advance` (REQ-H-06); `--epoch` sintético exige `--ticks` | PPM ou PNG em arquivo ou stdout | arquivo opcional de exatamente 32 dígitos; `mtime` como medida externa |
+| `textus` | tamanho do terminal, relógio e energia por argumento | Littera nativo ou raster por meio-blocos; ANSI quando comprovado, plain nos demais casos | arquivo opcional de 32 dígitos |
 | `limen` | nada | nada | nada; o chamador persiste |
-| `hosts/macos` | `pmset` (energia), `sw_vers` (versão), tamanho da tela | `osascript` define a imagem da mesa; `launchd` agenda | arquivo em `~/Library/Application Support/sisyphium/` |
+| `hosts/macos` | `pmset` (energia), `sw_vers` (versão), `system_profiler` (tamanho da tela) | `osascript` define a imagem da mesa; `launchd` agenda | arquivo em `~/Library/Application Support/sisyphium/` |
 | `hosts/linux` | `/sys/class/power_supply`, `xrandr` ou `swaymsg` | `feh` ou `swww`; `systemd` timer | `$XDG_STATE_HOME/sisyphium/` |
 | `hosts/windows` | `Get-CimInstance Win32_Battery`, resolução | `SystemParametersInfo` via PowerShell; agendador de tarefas | `%LOCALAPPDATA%\sisyphium\` |
 | `hosts/tela` | tamanho do canvas; `navigator.getBattery` quando existe; visibilidade da página; toque e ponteiro | canvas 2D por `putImageData` | `localStorage` com 32 dígitos |
@@ -394,7 +427,13 @@ Os IDATs contíguos transportam um único fluxo zlib com Adler-32; cada chunk po
 A saída padrão é PNG em stdout. `--format ppm` seleciona PPM explicitamente; a extensão do
 caminho não seleciona formato. O arquivo de imagem usa temporário exclusivo e substituição
 atômica de §3.3. O caminho de saída NÃO DEVE coincidir com o estado ou com seu lock após
-resolver o diretório pai. Componentes finais symlink são recusados. A falha de imagem impede
+resolver o diretório pai. A comparação usa identidade de arquivos e equivalência nativa de
+nomes; sondagens exclusivas no pai privado detectam equivalência de caixa ou de Unicode em
+nomes ainda ausentes e removem somente os próprios arquivos. Falha de sondagem ou limpeza
+é erro operacional, sem publicação. Nomes próximos do limite do sistema de arquivos podem
+ser recusados conservadoramente quando o prefixo de sondagem não cabe. Em Unix, a identidade
+inclui hardlinks existentes; nos demais alvos, usa canonicalização nativa e equivalência de
+nomes. Componentes finais symlink são recusados. A falha de imagem impede
 a gravação do estado. A falha posterior de estado PODE coexistir com a imagem publicada e
 NÃO DEVE causar rollback da imagem. Diagnósticos usam stderr.
 
@@ -404,3 +443,29 @@ Exemplo determinístico, sem persistência nem aplicação ao ambiente:
 cargo run -p sisyphium-tabula -- --seed 1 --epoch 1782054000000 --ticks 4096 --output quadro.png
 cargo run -p sisyphium-tabula -- --seed 1 --epoch 1782054000000 --ticks 4096 --format ppm --output quadro.ppm
 ```
+
+`textus` mede cada eixo com a precedência: argumento explícito, sondagem nativa, variável
+`COLUMNS`/`LINES`, padrão físico 80×24. A altura medida reserva uma linha para o terminal;
+`--rows` explícito já indica linhas utilizáveis. Uma grade completa explícita dispensa
+sondagem. Nas apresentações seguintes, a sondagem ocorre no máximo uma vez por segundo.
+Mudanças de grade respeitam novamente os limites de buffers antes de substituir a superfície.
+
+Em células, o raster auxiliar tem exatamente a dimensão da grade, e `render_cellae` fornece
+índices de glifo e tom. A conversão preserva as maiúsculas acentuadas e usa a paleta efetiva.
+Em raster, a altura é o dobro das linhas, e cada par usa o bloco superior com cores de frente
+e fundo. Sem ANSI, os dois tons são comparados ao ponto médio entre o mínimo e o máximo
+observados no quadro: ` `, `▀`, `▄` e `█` conservam os dois meios e o contraste local sem
+sequências de controle. Essa redução é uma política de apresentação do hospedeiro.
+
+Os buffers são reservados antes da evolução, incluindo o pior caso UTF-8/ANSI. O terminal
+não lê teclas nem muda termios, console mode, visibilidade do cursor ou tela alternativa.
+O encoder restaura SGR a cada linha e quadro. O loop usa prazos monotônicos independentes
+para tick e apresentação; não reapresenta quadros perdidos. O avanço em atraso é limitado
+a 65 536 ticks por lote e descarta o excedente. O relógio civil alimenta apenas `Indicia` e
+a retomada inicial. A espera consulta a flag de encerramento em fatias de até 25 ms;
+E/S bloqueada ou sondagem nativa bloqueada não têm prazo rígido de término.
+
+Os adaptadores de desktop e agendas seguem [hosts/README.md](../hosts/README.md): padrão
+`dry-run`, escrita de artefatos por `run`, aplicação por `apply`, registro por `install`
+e remoção da própria agenda por `uninstall`. Cada ação é explícita. A entrega de
+`hosts/tela` pertence ao checkpoint seguinte.

@@ -31,10 +31,17 @@ cargo test --release -p sisyphium --test aurea -- --ignored metire_frames --noca
 cargo build --release -p sisyphium --lib
 ```
 
+`scripts/verify.sh` executa os gates de formato, lints, testes, documentação, vocabulário,
+modelo independente e as provas nativas dos hospedeiros de §§9–12. Python 3.9 ou posterior
+e compilador C já configurado são requisitos de verificação. `SISYPHIUM_PYTHON` permite
+selecionar um executável Python existente; a rotina não instala dependências.
+
 ## 4. Integração contínua
 
-Dois sistemas (Linux, macOS). Etapas: formato; lints; testes; documentação e varredura de
-termos vetados. Os testes comparam os quadros-ouro com as mesmas constantes nos dois sistemas.
+Três sistemas (Linux, macOS e Windows). Etapas: formato; lints; testes; documentação e varredura de
+termos vetados. Os testes comparam os quadros-ouro com as mesmas constantes nos três sistemas.
+Cada sistema executa também a decodificação independente de imagens, consumidores C ligados
+a staticlib e cdylib, adaptadores com comandos substitutos e encerramento nativo do terminal.
 Uma execução adicional verifica os testes na versão mínima 1.85. Uma etapa falha interrompe o
 merge.
 
@@ -71,7 +78,10 @@ final 1 782 054 000 000 e demais `Indicia` padrão: mediana de 11 execuções em
 O PR registra também o tamanho em bytes e a soma SHA-256 da biblioteca `.rlib` produzida por
 `cargo build --release -p sisyphium --lib`, além do número de linhas do corpus e do comprimento
 máximo em glifos. A biblioteca inclui código e metadados; seu tamanho NÃO DEVE ser apresentado
-como tamanho de executável. A medição de executáveis dos hospedeiros pertence ao checkpoint 4.
+como tamanho de executável. A medição dos hospedeiros registra separadamente os executáveis
+`tabula` e `textus`, a staticlib e a cdylib de `limen`, cada qual com bytes e SHA-256.
+Artefato ausente causa falha de verificação; não é contado como tamanho zero. Metadados de
+compilação e código de ligação integram esses tamanhos, que não equivalem ao tamanho do estado.
 
 ## 7. Cenários dos quadros-ouro
 
@@ -101,6 +111,17 @@ respectivamente, os primeiros seis quadros, os quatro grafos, a noite e a agniti
 os bytes do raster codificado, antes da conversão pela paleta. A rotina ignorada
 `dump_golden_ppm` exporta os 12 quadros em `CARGO_TARGET_TMPDIR/aurea-cp3`; os PPMs DEVEM ser
 convertidos em PNG e inspecionados antes de registrar hashes.
+
+O exportador grava também raster, paleta e manifesto temporários. A prova ignorada
+`export_golden_png` de Tabula consome esses mesmos 12 quadros, confere o hash do raster e
+produz PNG/PPM pelo codificador do hospedeiro; o PPM DEVE coincidir byte a byte com o do
+núcleo. Regimina fixos dos quadros-ouro e seleção normal da CLI são provas distintas.
+Uma calibração de custos NÃO DEVE atualizar hashes de raster fixo sem alteração visual.
+
+```sh
+cargo test -p sisyphium --test aurea -- --ignored dump_golden_ppm
+cargo test -p sisyphium-tabula --test aurea -- --ignored export_golden_png
+```
 
 Os hashes são constantes nos testes; uma mudança de forma intencional atualiza as constantes no
 mesmo commit que a causa.
@@ -149,3 +170,68 @@ A matriz contém 1×1, 320×180, 254×257 e 257×256; as duas últimas dimensõe
 respectivamente, 65 535 bytes filtrados exatos e a passagem para outro bloco stored.
 O cenário de energia zero verifica a saída estática de energia escassa. As provas não
 acionam os scripts de integração nem alteram wallpaper ou agendadores.
+
+## 10. Fronteira C nativa
+
+```sh
+python3 scripts/verify-ffi.py
+```
+
+O verificador usa somente compilador C e SDK já disponíveis. Em Windows, o ambiente do
+compilador nativo DEVE estar configurado. Ausência de compilador, SDK ou biblioteca produz
+falha explícita, sem instalação automática. `cargo test -p sisyphium-limen` cobre os nove
+exports, nulls, discriminantes, flags, reservas, limites, buffers não inicializados e
+preservação das saídas em erro. Não fabrica ponteiros não nulos inválidos como prova segura.
+
+Um programa C11 compara tamanhos, alinhamentos e 36 offsets do header público. Sentinelas
+delimitam arrays de 32 e 48 bytes e raster. Fixtures produzidas pelas APIs públicas do
+núcleo são comparadas byte a byte através do ABI. O consumidor é compilado e executado
+separadamente contra cdylib e staticlib; cada execução é repetida. A ligação estática usa
+as bibliotecas nativas informadas por `rustc --print=native-static-libs`. Uma `.rlib` não
+substitui staticlib. A prova estabelece somente a plataforma nativa em que foi executada;
+não demonstra alvo wasm ou alinhamentos de outro ABI.
+
+## 11. Terminal e encerramento
+
+`cargo test -p sisyphium-textus` cobre glifos e acentos, tons, os dois meios de cada bloco,
+saída plain sem ANSI, dimensões e limites independentes, precedência de medidas, cache de
+sondagem, prazos de evolução e apresentação e persistência apenas em marcos e encerramento.
+Falhas de write e flush tentam a gravação em contexto normal. Falha de transação não é
+repetida no cleanup. Os testes de persistência usam somente diretórios próprios.
+
+```sh
+cargo build -p sisyphium-textus --examples
+python3 scripts/verify-textus.py
+```
+
+O verificador exercita processos próprios e superfícies privadas. Em Unix, envia SIGINT e
+SIGTERM durante a espera, exige saída zero, estado válido de 32 bytes e lock liberado.
+Uma PTY privada compara termios antes e depois e verifica a ausência de alterações de
+cursor e tela alternativa. Em Windows, os eventos reais CTRL_C e CTRL_BREAK são emitidos
+somente numa console privada; CTRL_C não pode ser limitado a um grupo de processos.
+A prova compara os modos da console e testa restauração da guarda enquanto o processo
+continua. Término forçado não substitui evento de controle nessa verificação.
+
+Essas provas não garantem gravação após SIGKILL, TerminateProcess, apagão ou eventos
+CLOSE, LOGOFF e SHUTDOWN. Uma operação de E/S ou sondagem bloqueada também impede prazo
+rígido de encerramento. Limitações de ABI e sinais constam do ADR 0008.
+
+## 12. Adaptadores de desktop
+
+```sh
+python3 scripts/verify-hosts.py --platform current
+```
+
+O teste usa scripts com hashes revisados, cópias conferidas, PATH fechado e substitutos de
+aplicadores e agendadores. Ausência de dependência DEVE ser comprovada por resolução antes
+de executar o script. O teste recusa origens de comandos divergentes e mantém artefatos
+inclusive em falhas. A configuração de diretório pessoal isolado, por si só, não isola
+uma sessão gráfica. O teste não constitui sandbox de sistema operacional.
+
+As provas cobrem `dry-run` sem escrita, medidas e fallbacks, argumentos literais, limites,
+publicação anterior à aplicação simulada, falhas do binário, ausência de dependência e
+escopo das agendas. `--platform unix` executa os dois adaptadores shell com substitutos;
+Windows exige PowerShell nativo. Nenhuma prova com substitutos demonstra que a imagem foi
+aceita pelo desktop real. Uma aplicação ou agenda nativa exige ação explícita separada.
+Os registros locais contêm caminhos do ambiente e permanecem fora dos artefatos públicos.
+Detalhes operacionais constam de [hosts/README.md](../hosts/README.md#verificação-isolada).

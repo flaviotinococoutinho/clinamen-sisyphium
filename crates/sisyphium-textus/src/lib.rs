@@ -234,6 +234,9 @@ pub fn run(args: &[OsString], output: &mut dyn Write) -> Result<(), Error> {
         None
     };
     let (cols, rows) = options.size(measured).map_err(Error::Usus)?;
+    let height = raster_height(rows, options.cellae).map_err(Error::Usus)?;
+    validate_area(cols, height, MAX_PIXELS).map_err(Error::Usus)?;
+    terminalis::frame_bound(cols, rows, options.plana).map_err(Error::Usus)?;
     let mut surface =
         Superficies::new(cols, rows, options.cellae, options.plana).map_err(Error::Operatio)?;
     let guard = if options.finita == Some(1) {

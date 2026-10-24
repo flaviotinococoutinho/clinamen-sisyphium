@@ -126,8 +126,12 @@ fn bounds_and_information_have_no_state_effects() -> io::Result<()> {
             .stdin(Stdio::null())
             .output()?;
         assert_eq!(
-            output.status.success(),
-            args[0] == "--help" || args[0] == "--version"
+            output.status.code(),
+            Some(if args[0] == "--help" || args[0] == "--version" {
+                0
+            } else {
+                2
+            })
         );
         assert!(!path.exists());
         assert_eq!(fs::read_dir(&directory.0)?.count(), 0);

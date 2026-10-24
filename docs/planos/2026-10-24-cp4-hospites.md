@@ -342,7 +342,7 @@ transação de estado T1 protege também chamadas manuais. Dry-run não cria dir
 - [ ] Implementar diretórios padrão: macOS `~/Library/Application Support/sisyphium`, Linux
   `${XDG_STATE_HOME:-$HOME/.local/state}/sisyphium`, Windows `%LOCALAPPDATA%\sisyphium`.
   Arquivos `mundus.hex` e `tabula.png`; run explícito pode criar apenas esse diretório.
-- [ ] macOS mede pmset/sw_vers e dimensões por System Events; sem permissão usa fallback;
+- [ ] macOS mede pmset/sw_vers e dimensões por system_profiler; medida indisponível usa fallback;
   osascript recebe caminho por argv, nunca interpolado em código. launchd usa StartInterval
   e ProgramArguments; não registrar RunAtLoad oculto. Plist escapa XML.
 - [ ] Linux mede power_supply e saída ativa de xrandr/swaymsg; escolhe feh com DISPLAY ou
